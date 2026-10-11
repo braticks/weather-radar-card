@@ -4,9 +4,10 @@ on:
   push:
     branches:
       - main
+      # Long-lived release branches such as 4.0, which take merged PRs too.
+      - '[0-9]+.[0-9]+'
+  # Every PR, whatever its base: PRs into 4.0 used to merge with no checks.
   pull_request:
-    branches:
-      - main
   workflow_dispatch:
 
 # Cancel an older run of the same workflow on the same ref when a new push
