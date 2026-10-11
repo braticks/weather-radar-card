@@ -200,6 +200,8 @@
     },
     "presets": {
       "help": "Centreringsknappen växlar mellan den följda markören, Standard och dessa vyer. Tryck på namnet bredvid knappen för att gå tillbaka.",
+      "help_map": "Den öppna vyn visas på kartan: panorera och zooma den där för att ställa in den.",
+      "drag": "Dra för att ändra ordning",
       "add": "+ Lägg till vy",
       "name": "Namn (valfritt)",
       "entity": "Följ entitet (valfritt)",

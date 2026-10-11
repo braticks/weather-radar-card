@@ -4,7 +4,10 @@ import { HomeAssistant, fireEvent, LovelaceCardEditor } from 'custom-card-helper
 
 import { WeatherRadarCardConfig, CoordinateConfig, Marker, ViewPreset } from './types';
 import { migrateConfig } from './marker-utils';
-import { DEFAULT_PRESET_TIMEOUT_MIN, recenterRequested } from './view-presets';
+import {
+  DEFAULT_PRESET_TIMEOUT_MIN, PRESET_MAP_EVENT, PresetMapMove, presetName, recenterRequested, setEditorPresetFocus,
+} from './view-presets';
+import { dropIndex, indexAfterMove, indexAfterRemove, moveItem } from './list-reorder';
 import { localize } from './localize/localize';
 import { ALL_ALERT_CATEGORIES, getActiveAlertCategories } from './nws-alert-categories';
 import { isBlitzortungLoaded } from './lightning-helpers';
@@ -23,6 +26,11 @@ import { customElement, property, state } from 'lit/decorators.js';
 // editorMaxPastMin. 20/40 give finer-grained control at the small end
 // where users care most; the upper end skips toward larger steps.
 const PAST_PRESETS_MIN = [20, 40, 60, 120, 240, 360, 720, 1440];
+
+// The value of a dropdown's "use the default" choice. HA's select shows
+// nothing for an empty-string value, so the default needs a real one; the
+// handlers read it as "remove the key".
+const DEFAULT_CHOICE = 'default';
 
 // preset_timeout choices in minutes; 0 is never. The default
 // (DEFAULT_PRESET_TIMEOUT_MIN) is the empty choice, so picking it leaves
@@ -102,6 +110,11 @@ export class WeatherRadarCardEditor extends LitElement implements LovelaceCardEd
   // re-opening the editor returns to 'main', matching HA editor conventions.
   @state() private _view: 'main' | 'markers' | 'presets' | 'overlays' | 'wind' = 'main';
 
+  // The one preset shown open on the Presets page; the preview shows it.
+  @state() private _presetOpen: number | null = null;
+  // A drag in progress: the row picked up and the insert position under the pointer.
+  @state() private _presetDrag: { from: number; to: number } | null = null;
+
   private _initialized = false;
 
   public setConfig(config: WeatherRadarCardConfig): void {
@@ -127,6 +140,7 @@ export class WeatherRadarCardEditor extends LitElement implements LovelaceCardEd
   connectedCallback(): void {
     super.connectedCallback();
     window.addEventListener('weather-radar-center-update', this._boundCenterUpdate);
+    window.addEventListener(PRESET_MAP_EVENT, this._onMapPresetMove);
     // Tell every weather-radar-card on the dashboard that *some* editor is
     // now open. Cards use this to switch on auto-propagate of pan/zoom
     // into the editor's Lat/Long/Zoom fields — see _initMap in the card.
@@ -144,6 +158,8 @@ export class WeatherRadarCardEditor extends LitElement implements LovelaceCardEd
   disconnectedCallback(): void {
     super.disconnectedCallback();
     window.removeEventListener('weather-radar-center-update', this._boundCenterUpdate);
+    window.removeEventListener(PRESET_MAP_EVENT, this._onMapPresetMove);
+    setEditorPresetFocus(null);
     const w = window as unknown as { __weatherRadarCardEditorCount?: number };
     w.__weatherRadarCardEditorCount = Math.max(0, (w.__weatherRadarCardEditorCount ?? 0) - 1);
     window.dispatchEvent(new CustomEvent('weather-radar-editor-closed'));
@@ -155,6 +171,12 @@ export class WeatherRadarCardEditor extends LitElement implements LovelaceCardEd
     }
 
     return true;
+  }
+
+  protected updated(changed: Map<string, unknown>): void {
+    if (changed.has('_presetOpen') || changed.has('_view')) {
+      setEditorPresetFocus(this._view === 'presets' ? this._presetOpen : null);
+    }
   }
 
   protected render(): TemplateResult | void {
@@ -353,7 +375,7 @@ export class WeatherRadarCardEditor extends LitElement implements LovelaceCardEd
           .selector=${{
             select: {
               options: [
-                { value: '', label: localize('editor.map.zoom_default') },
+                { value: DEFAULT_CHOICE, label: localize('editor.map.zoom_default') },
                 { value: '3', label: '3' },
                 { value: '4', label: '4' },
                 { value: '5', label: '5' },
@@ -365,7 +387,7 @@ export class WeatherRadarCardEditor extends LitElement implements LovelaceCardEd
               ],
             },
           }}
-          .value=${config.zoom_level?.toString() || ''}
+          .value=${config.zoom_level?.toString() || DEFAULT_CHOICE}
           .label=${localize('editor.map.zoom_level')}
           .configValue=${'zoom_level'}
           .required=${false}
@@ -958,7 +980,7 @@ export class WeatherRadarCardEditor extends LitElement implements LovelaceCardEd
     const timeoutOptions = PRESET_TIMEOUT_CHOICES_MIN.map((min) => (
       min === 0 ? { value: '0', label: localize('editor.presets.timeout_never') }
         : min === DEFAULT_PRESET_TIMEOUT_MIN
-          ? { value: '', label: localize('editor.presets.timeout_default', '{n}', String(min)) }
+          ? { value: DEFAULT_CHOICE, label: localize('editor.presets.timeout_default', '{n}', String(min)) }
           : { value: String(min), label: localize('editor.presets.timeout_minutes', '{n}', String(min)) }
     ));
     const timeout = config.preset_timeout;
@@ -968,13 +990,16 @@ export class WeatherRadarCardEditor extends LitElement implements LovelaceCardEd
           ‹ ${localize('editor.markers.back')}
         </button>
         <h3 class="section-header">${localize('editor.section.presets')}</h3>
-        <p class="section-description">${localize('editor.presets.help')}</p>
-        ${presets.map((p, i) => this._renderPresetRow(p, i))}
-        <ha-button class="add-marker-btn" @click=${() => this._setPresets([...presets, {}])}>${localize('editor.presets.add')}</ha-button>
+        <p class="section-description">${localize('editor.presets.help')} ${localize('editor.presets.help_map')}</p>
+        ${presets.map((p, i) => this._renderPresetRow(p, i, presets.length))}
+        <ha-button class="add-marker-btn" @click=${() => {
+          this._setPresets([...presets, {}]);
+          this._presetOpen = presets.length;
+        }}>${localize('editor.presets.add')}</ha-button>
         <ha-selector
           .hass=${this.hass}
           .selector=${{ select: { options: timeoutOptions } }}
-          .value=${timeout === undefined || timeout === DEFAULT_PRESET_TIMEOUT_MIN ? '' : String(timeout)}
+          .value=${timeout === undefined || timeout === DEFAULT_PRESET_TIMEOUT_MIN ? DEFAULT_CHOICE : String(timeout)}
           .label=${localize('editor.presets.timeout')}
           .configValue=${'preset_timeout'}
           .required=${false}
@@ -984,57 +1009,156 @@ export class WeatherRadarCardEditor extends LitElement implements LovelaceCardEd
     `;
   }
 
-  private _renderPresetRow(p: ViewPreset, i: number): TemplateResult {
-    const zoomOptions = [{ value: '', label: localize('editor.presets.zoom_default') }];
+  private _renderPresetRow(p: ViewPreset, i: number, count: number): TemplateResult {
+    const open = this._presetOpen === i;
+    const drag = this._presetDrag;
+    const classes = ['marker-row', 'preset-row'];
+    if (drag?.from === i) classes.push('dragging');
+    // The drop line: before the row the item would land in front of, or
+    // after the last row; nothing where the drop wouldn't move it.
+    if (drag && drag.to !== drag.from && drag.to !== drag.from + 1) {
+      if (drag.to === i) classes.push('drop-before');
+      if (drag.to === count && i === count - 1) classes.push('drop-after');
+    }
+    const summary = !p.entity && Number.isFinite(p.latitude) && Number.isFinite(p.longitude)
+      ? `${p.latitude}, ${p.longitude}` : '';
+    const zoomOptions = [{ value: DEFAULT_CHOICE, label: localize('editor.presets.zoom_default') }];
     for (let z = 3; z <= 16; z++) zoomOptions.push({ value: String(z), label: String(z) });
     return html`
-      <div class="marker-row">
+      <div class=${classes.join(' ')}>
         <div class="marker-row-header">
-          <span class="marker-row-label">${localize('ui.preset_n', '{n}', String(i + 1))}</span>
-          <ha-button class="remove-marker-btn" @click=${() => this._setPresets((this._config?.presets ?? []).filter((_, idx) => idx !== i))}>${localize('editor.markers.remove')}</ha-button>
+          <span
+            class="drag-handle"
+            role="button"
+            tabindex="0"
+            title=${localize('editor.presets.drag')}
+            aria-label=${localize('editor.presets.drag')}
+            @pointerdown=${(ev: PointerEvent) => this._startPresetDrag(ev, i)}
+            @keydown=${(ev: KeyboardEvent) => this._presetHandleKey(ev, i, count)}
+          ><ha-icon icon="mdi:drag"></ha-icon></span>
+          <button class="preset-toggle" aria-expanded=${String(open)} @click=${() => { this._presetOpen = open ? null : i; }}>
+            <ha-icon icon=${open ? 'mdi:chevron-down' : 'mdi:chevron-right'}></ha-icon>
+            <span class="marker-row-label">${presetName(p, i, this.hass)}</span>
+            ${!open && summary ? html`<span class="preset-summary">${summary}</span>` : ''}
+          </button>
+          <ha-button class="remove-marker-btn" @click=${() => this._removePreset(i)}>${localize('editor.markers.remove')}</ha-button>
         </div>
-        <ha-input
-          label=${localize('editor.presets.name')}
-          .value=${p.name ?? ''}
-          @input=${(ev: Event) => this._setPresetField(i, 'name', (ev.target as HTMLInputElement).value.trim() || undefined)}
-        ></ha-input>
-        <ha-selector
-          .hass=${this.hass}
-          .selector=${{ entity: { filter: [{ domain: 'device_tracker' }, { domain: 'person' }, { domain: 'zone' }] } }}
-          .value=${p.entity ?? ''}
-          .label=${localize('editor.presets.entity')}
-          .required=${false}
-          @value-changed=${(ev: CustomEvent) => this._setPresetField(i, 'entity', ev.detail.value || undefined)}
-        ></ha-selector>
-        ${!p.entity ? html`
-          <div class="side-by-side">
-            <ha-input
-              label=${localize('editor.markers.latitude')}
-              .value=${p.latitude !== undefined ? String(p.latitude) : ''}
-              @input=${(ev: Event) => this._setPresetField(i, 'latitude', parseCoordinate((ev.target as HTMLInputElement).value))}
-            ></ha-input>
-            <ha-input
-              label=${localize('editor.markers.longitude')}
-              .value=${p.longitude !== undefined ? String(p.longitude) : ''}
-              @input=${(ev: Event) => this._setPresetField(i, 'longitude', parseCoordinate((ev.target as HTMLInputElement).value))}
-            ></ha-input>
-          </div>
+        ${open ? html`
+          <ha-input
+            label=${localize('editor.presets.name')}
+            .value=${p.name ?? ''}
+            @input=${(ev: Event) => this._setPresetField(i, 'name', (ev.target as HTMLInputElement).value.trim() || undefined)}
+          ></ha-input>
+          <ha-selector
+            .hass=${this.hass}
+            .selector=${{ entity: { filter: [{ domain: 'device_tracker' }, { domain: 'person' }, { domain: 'zone' }] } }}
+            .value=${p.entity ?? ''}
+            .label=${localize('editor.presets.entity')}
+            .required=${false}
+            @value-changed=${(ev: CustomEvent) => this._setPresetField(i, 'entity', ev.detail.value || undefined)}
+          ></ha-selector>
+          ${!p.entity ? html`
+            <div class="side-by-side">
+              <ha-input
+                label=${localize('editor.markers.latitude')}
+                .value=${p.latitude !== undefined ? String(p.latitude) : ''}
+                @input=${(ev: Event) => this._setPresetField(i, 'latitude', parseCoordinate((ev.target as HTMLInputElement).value))}
+              ></ha-input>
+              <ha-input
+                label=${localize('editor.markers.longitude')}
+                .value=${p.longitude !== undefined ? String(p.longitude) : ''}
+                @input=${(ev: Event) => this._setPresetField(i, 'longitude', parseCoordinate((ev.target as HTMLInputElement).value))}
+              ></ha-input>
+            </div>
+          ` : ''}
+          <ha-selector
+            .hass=${this.hass}
+            .selector=${{ select: { options: zoomOptions } }}
+            .value=${p.zoom !== undefined ? String(p.zoom) : DEFAULT_CHOICE}
+            .label=${localize('editor.map.zoom_level')}
+            .required=${false}
+            @value-changed=${(ev: CustomEvent) => {
+              // A cleared optional dropdown sends undefined, not ''.
+              const v = ev.detail.value;
+              this._setPresetField(i, 'zoom', v === '' || v == null || v === DEFAULT_CHOICE ? undefined : Number(v));
+            }}
+          ></ha-selector>
         ` : ''}
-        <ha-selector
-          .hass=${this.hass}
-          .selector=${{ select: { options: zoomOptions } }}
-          .value=${p.zoom !== undefined ? String(p.zoom) : ''}
-          .label=${localize('editor.map.zoom_level')}
-          .required=${false}
-          @value-changed=${(ev: CustomEvent) => {
-            // A cleared optional dropdown sends undefined, not ''.
-            const v = ev.detail.value;
-            this._setPresetField(i, 'zoom', v === '' || v == null ? undefined : Number(v));
-          }}
-        ></ha-selector>
       </div>
     `;
   }
+
+  private _removePreset(i: number): void {
+    this._setPresets((this._config?.presets ?? []).filter((_, idx) => idx !== i));
+    this._presetOpen = indexAfterRemove(this._presetOpen, i);
+  }
+
+  /** Move the preset at `from` to insert position `to`; the open one stays open. */
+  private _movePreset(from: number, to: number): void {
+    const presets = this._config?.presets ?? [];
+    if (to === from || to === from + 1 || from < 0 || from >= presets.length) return;
+    this._setPresets(moveItem(presets, from, to));
+    if (this._presetOpen !== null) this._presetOpen = indexAfterMove(this._presetOpen, from, to);
+  }
+
+  // Pointer events rather than HTML drag and drop, which touch screens
+  // don't fire. Rows don't move while dragging, so their midpoints are
+  // measured once; a line shows where the preset will land.
+  private _startPresetDrag(ev: PointerEvent, from: number): void {
+    if (ev.button !== 0) return;
+    ev.preventDefault();
+    const handle = ev.currentTarget as HTMLElement;
+    const rows = [...(this.shadowRoot?.querySelectorAll('.preset-row') ?? [])] as HTMLElement[];
+    const mids = rows.map((r) => { const b = r.getBoundingClientRect(); return b.top + b.height / 2; });
+    this._presetDrag = { from, to: from };
+    handle.setPointerCapture?.(ev.pointerId);
+    const move = (e: PointerEvent): void => {
+      this._presetDrag = { from, to: dropIndex(mids, e.clientY) };
+    };
+    const end = (e: PointerEvent): void => {
+      handle.removeEventListener('pointermove', move);
+      handle.removeEventListener('pointerup', end);
+      handle.removeEventListener('pointercancel', end);
+      const drag = this._presetDrag;
+      this._presetDrag = null;
+      if (e.type === 'pointerup' && drag) this._movePreset(drag.from, drag.to);
+    };
+    handle.addEventListener('pointermove', move);
+    handle.addEventListener('pointerup', end);
+    handle.addEventListener('pointercancel', end);
+  }
+
+  private _presetHandleKey(ev: KeyboardEvent, i: number, count: number): void {
+    let to: number | null = null;
+    if (ev.key === 'ArrowUp' && i > 0) to = i - 1;
+    if (ev.key === 'ArrowDown' && i < count - 1) to = i + 2;
+    if (to === null) return;
+    ev.preventDefault();
+    this._movePreset(i, to);
+    const landed = indexAfterMove(i, i, to);
+    // Keep focus on the moved preset's handle so arrows keep moving it.
+    void this.updateComplete.then(() => {
+      (this.shadowRoot?.querySelectorAll('.preset-row .drag-handle')[landed] as HTMLElement | undefined)?.focus();
+    });
+  }
+
+  // The preview's map moved by hand: set the open preset to the view, or
+  // just its zoom for one that follows an entity.
+  private _onMapPresetMove = (e: Event): void => {
+    const move = (e as CustomEvent<PresetMapMove>).detail;
+    if (this._view !== 'presets' || !move || move.index !== this._presetOpen) return;
+    const presets = [...(this._config?.presets ?? [])];
+    const p = presets[move.index];
+    if (!p) return;
+    const next: ViewPreset = { ...p, zoom: move.zoom };
+    if (!p.entity) {
+      next.latitude = move.latitude;
+      next.longitude = move.longitude;
+    }
+    if (JSON.stringify(next) === JSON.stringify(p)) return;
+    presets[move.index] = next;
+    this._setPresets(presets);
+  };
 
   // Unset fields are removed rather than stored as undefined, so the YAML
   // only carries what the user filled in.
@@ -1057,12 +1181,18 @@ export class WeatherRadarCardEditor extends LitElement implements LovelaceCardEd
   }
 
   private _addMarkerAsPreset(m: Marker): void {
+    const presets = this._config?.presets ?? [];
     const preset: ViewPreset = m.entity ? { entity: m.entity } : { latitude: m.latitude, longitude: m.longitude };
-    this._setPresets([...(this._config?.presets ?? []), preset]);
+    this._setPresets([...presets, preset]);
+    this._presetOpen = presets.length;
   }
 
   private _setView(view: 'main' | 'markers' | 'presets' | 'overlays' | 'wind'): void {
     this._view = view;
+    if (view === 'presets') {
+      const n = this._config?.presets?.length ?? 0;
+      if (this._presetOpen === null || this._presetOpen >= n) this._presetOpen = n > 0 ? 0 : null;
+    }
     // Scroll the editor pane back to the top so the user always lands at the
     // start of the new view, not part-way down where they were on the old one.
     this.shadowRoot?.querySelector('.values')?.scrollIntoView({ block: 'start', behavior: 'auto' });
@@ -1537,7 +1667,7 @@ export class WeatherRadarCardEditor extends LitElement implements LovelaceCardEd
     if (!this._config || !configValue) return;
 
     // A cleared optional dropdown sends undefined.
-    const numValue = value === '' || value == null ? null : Number(value);
+    const numValue = value === '' || value == null || value === DEFAULT_CHOICE ? null : Number(value);
     if (this._config[configValue] === numValue) return;
 
     if (numValue === null) {
@@ -1797,6 +1927,24 @@ export class WeatherRadarCardEditor extends LitElement implements LovelaceCardEd
       font-weight: 600;
       color: var(--secondary-text-color);
     }
+    .preset-row .marker-row-header { gap: 4px; }
+    .drag-handle {
+      display: flex; align-items: center; padding: 4px; cursor: grab;
+      color: var(--secondary-text-color); touch-action: none; border-radius: 4px;
+    }
+    .drag-handle:focus-visible { outline: 2px solid var(--primary-color); }
+    .preset-toggle {
+      flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px;
+      background: none; border: 0; padding: 4px 0; cursor: pointer;
+      font: inherit; color: inherit; text-align: left;
+    }
+    .preset-summary {
+      font-size: 0.8em; color: var(--secondary-text-color);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .preset-row.dragging { opacity: 0.4; }
+    .preset-row.drop-before { box-shadow: 0 -3px 0 var(--primary-color); }
+    .preset-row.drop-after { box-shadow: 0 3px 0 var(--primary-color); }
     .add-as-preset-btn {
       margin-left: auto;
     }

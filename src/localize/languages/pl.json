@@ -200,6 +200,8 @@
     },
     "presets": {
       "help": "Przycisk wyśrodkowania przełącza między śledzonym znacznikiem, widokiem Domyślnym i tymi widokami. Dotknij nazwy obok przycisku, aby wrócić.",
+      "help_map": "Otwarty widok jest pokazany na mapie: przesuń go i przybliż tam, aby go ustawić.",
+      "drag": "Przeciągnij, aby zmienić kolejność",
       "add": "+ Dodaj widok",
       "name": "Nazwa (opcjonalnie)",
       "entity": "Śledź encję (opcjonalnie)",

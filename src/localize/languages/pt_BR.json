@@ -200,6 +200,8 @@
     },
     "presets": {
       "help": "O botão de recentralizar alterna entre o marcador seguido, Padrão e estas vistas. Toque no nome ao lado do botão para voltar.",
+      "help_map": "A vista aberta aparece no mapa: mova e aproxime-a ali para defini-la.",
+      "drag": "Arraste para reordenar",
       "add": "+ Adicionar vista",
       "name": "Nome (opcional)",
       "entity": "Seguir entidade (opcional)",

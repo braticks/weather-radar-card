@@ -200,6 +200,8 @@
     },
     "presets": {
       "help": "El botón de recentrar recorre el marcador seguido, Predeterminado y estas vistas. Toca el nombre junto al botón para volver.",
+      "help_map": "La vista abierta se muestra en el mapa: desplázala y amplíala allí para fijarla.",
+      "drag": "Arrastra para reordenar",
       "add": "+ Añadir vista",
       "name": "Nombre (opcional)",
       "entity": "Seguir entidad (opcional)",

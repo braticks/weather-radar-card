@@ -425,6 +425,61 @@ describe('ViewPresets rotation', () => {
     });
   });
 
+  describe('edit', () => {
+    it('holds the preset open in the editor, with no idle timeout', () => {
+      vi.useFakeTimers();
+      const { vp, view, last } = setup({ presets: [BAY, { latitude: 40, longitude: -100 }] });
+      vp.edit(1);
+      expect(view()).toEqual({ lat: 40, lon: -100, zoom: 7 });
+      expect(last()).toEqual({ held: 1, label: 'Preset 2', sticky: true });
+      vi.advanceTimersByTime(60 * 60_000);
+      expect(vp.isHolding).toBe(true);
+    });
+
+    it('re-showing the preset already in view leaves the map still', () => {
+      const { map, vp } = setup({ presets: [BAY] });
+      vp.edit(0);
+      const setView = vi.spyOn(map, 'setView');
+      vp.edit(0);
+      expect(setView).not.toHaveBeenCalled();
+    });
+
+    it('moves the map when the preset being edited changes', () => {
+      const { vp, ctx, view } = setup({ presets: [BAY] });
+      vp.edit(0);
+      ctx.cfg = { ...ctx.cfg, presets: [{ ...BAY, latitude: 38 }] };
+      vp.edit(0);
+      expect(view()).toEqual({ lat: 38, lon: -122.2, zoom: 9 });
+    });
+
+    it('holds a preset with no position yet without moving the map', () => {
+      const { vp, view } = setup({ presets: [{}] });
+      vp.edit(0);
+      expect(vp.isHolding).toBe(true);
+      expect(view()).toEqual({ ...HOME, zoom: 7 });
+    });
+
+    it('null returns to rest, and the idle timeout applies again', () => {
+      vi.useFakeTimers();
+      const { vp, view } = setup({ presets: [BAY] });
+      vp.edit(0);
+      vp.edit(null);
+      expect(vp.isHolding).toBe(false);
+      expect(view()).toEqual({ ...HOME, zoom: 7 });
+      vp.recenter();
+      vi.advanceTimersByTime(5 * 60_000);
+      expect(vp.isHolding).toBe(false);
+    });
+
+    it('null with nothing open leaves the map alone', () => {
+      const { vp, changes } = setup({ presets: [BAY] });
+      vp.recenter();
+      vp.edit(null);
+      expect(changes).toHaveLength(1);
+      expect(vp.isHolding).toBe(true);
+    });
+  });
+
   it('drop at rest does nothing', () => {
     const { vp, changes } = setup({ presets: [BAY] });
     vp.drop();
