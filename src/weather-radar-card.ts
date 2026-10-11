@@ -121,7 +121,8 @@ import {
   ViewPresets, StopChange, recenterRequested, PRESET_FOCUS_EVENT, PRESET_MAP_EVENT, PresetMapMove,
   editorPresetFocus,
 } from './view-presets';
-import { hasAncestor } from './dom-ancestry';
+import { closestAncestor, deepQueryAll, hasAncestor } from './dom-ancestry';
+import { cardColumns, sectionCardWidth } from './section-width';
 import {
   LayerToggleBar, OverlayKey, OverlayVisibility, OVERLAY_KEYS, overlayConfigured,
 } from './layer-toggles';
@@ -173,6 +174,21 @@ const IDENTITY_KEYS = new Set(['_layer_state_id']);
 // Presets are read live by ViewPresets, so editing them needs no rebuild;
 // the editor writes them on every keystroke and map drag.
 const PRESET_KEYS = new Set(['presets', 'preset_timeout']);
+
+// The dashboard's grid for a section config. HA rebuilds the preview on
+// every edit, and finding the grid walks the whole dashboard.
+const sectionGrids = new WeakMap<object, HTMLElement>();
+
+function findSectionGrid(sectionConfig: object): HTMLElement | null {
+  const cached = sectionGrids.get(sectionConfig);
+  if (cached?.isConnected) return cached;
+  const section = deepQueryAll(document, 'hui-section').find((el) =>
+    (el as unknown as { config?: unknown }).config === sectionConfig && !hasAncestor(el, 'hui-dialog-edit-card'));
+  const grid = section ? deepQueryAll(section.shadowRoot ?? section, 'div')
+    .find((el) => getComputedStyle(el).display === 'grid') as HTMLElement | undefined : undefined;
+  if (grid) sectionGrids.set(sectionConfig, grid);
+  return grid ?? null;
+}
 
 @customElement('weather-radar-card')
 export class WeatherRadarCard extends LitElement implements LovelaceCard {
@@ -322,6 +338,7 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
     }
     const oldConfig = this._config;
     this._config = this._migrateConfig(config);
+    if (this.isConnected) this._fitEditorPreview();
     // Try to create the preference store. On the very first setConfig
     // this is usually a no-op: HA calls setConfig BEFORE assigning hass,
     // so there's nothing to build it with yet. _initMap (which only runs
@@ -567,6 +584,7 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
       this._editorOpen = true;
     }
     window.addEventListener(PRESET_FOCUS_EVENT, this._onPresetFocus);
+    this._fitEditorPreview();
     // HA detaches and re-attaches the card when re-organising the DOM
     // (entering/exiting edit mode, sections-grid layout changes). disconnectedCallback
     // calls _teardown() which removes the Leaflet map; connectedCallback
@@ -1489,6 +1507,41 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
     }
     this._toolbar?.showStopLabel(change.label, change.sticky);
     this._updateRecenterTitle();
+  }
+
+  /**
+   * HA's edit dialog caps every card preview at 500 px
+   * (`.content hui-card { max-width: 500px }`), even after a double-tap
+   * widens the dialog; a card with grid_options is previewed inside a
+   * stand-in one-column `hui-section`, capped the same way. In a sections
+   * view the preview takes the width the card gets on the dashboard,
+   * measured from its real section's grid, so a section spanning two
+   * columns shows it at that width; in any other view it fills the pane.
+   * Reads the dialog's private `_params`: if HA renames it, or the section
+   * can't be found, the preview keeps HA's own width.
+   */
+  private _fitEditorPreview(): void {
+    const dialog = closestAncestor(this, 'hui-dialog-edit-card') as
+      (Element & { _params?: { sectionConfig?: object } }) | null;
+    const container = closestAncestor(this, 'hui-card') as HTMLElement | null;
+    if (!dialog?._params || !container) return;
+    const sectionConfig = dialog._params.sectionConfig;
+    const grid = sectionConfig ? findSectionGrid(sectionConfig) : null;
+    if (sectionConfig && !grid) return;
+    container.style.maxWidth = 'none';
+    const standIn = closestAncestor(this, 'hui-section') as HTMLElement | null;
+    if (standIn) standIn.style.maxWidth = 'none';
+    if (!grid) {
+      this.style.width = '';
+      return;
+    }
+    const cs = getComputedStyle(grid);
+    const count = cs.gridTemplateColumns.split(' ').length;
+    const columns = cardColumns(this._config?.grid_options as { columns?: number | 'full' } | undefined,
+      count, this.getGridOptions().columns as number);
+    const width = sectionCardWidth(grid.getBoundingClientRect().width, count, parseFloat(cs.columnGap) || 0, columns);
+    this.style.width = `${width}px`;
+    this.style.maxWidth = '100%';
   }
 
   private _onPresetFocus = (): void => {

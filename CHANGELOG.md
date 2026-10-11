@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Editor preview sized like the dashboard** — in a sections view the preview card takes the width it has there, a section spanning several columns included; in other views it fills the dialog, so widening the dialog widens the map. HA caps every preview at 500 px otherwise.
 - **Breaking: with a tracked marker, re-centre switches between it and Default** — it used to jump to the configured centre until the tracked entity next moved. Now Default holds, with tracking paused, until another press, or until `preset_timeout` idle minutes (default 5) bring the map back to the tracked marker. Cards without a tracked marker re-centre as before.
 - **The re-centre button moved to the bottom of the toolbar**, below the playback controls, so the preset name beside it sits in the map's corner.
 - **Dark tile maps are greyer** — the inverted map (`Auto` in dark mode, `MapTiles` with `theme_mode: dark`, `custom_tile_theme: invert`, and the vector map's raster fallback in dark mode) keeps less of its colour (saturation 0.15, was HA's 0.3), so green forests and pink roads no longer compete with the radar.
