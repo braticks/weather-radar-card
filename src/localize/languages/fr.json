@@ -58,6 +58,10 @@
     "credits_library": "Bibliothèque",
     "carto_key_required": "Les tuiles CARTO nécessitent une clé d'API gratuite (carto_api_key). Sans elle la carte reste vide : ajoutez une clé ou choisissez un autre style de carte.",
     "close": "Fermer",
+    "recenter": "Recentrer",
+    "stop_default": "Par défaut",
+    "preset_n": "Vue {n}",
+    "preset_clear": "Quitter la vue",
     "lightning": {
       "popup_title": "Impact de foudre",
       "source_label": "Source : Blitzortung",
@@ -85,6 +89,7 @@
       "map": "Carte",
       "location": "Emplacement",
       "markers": "Marqueurs",
+      "presets": "Vues",
       "display": "Affichage",
       "interaction": "Interaction",
       "animation": "Animation",
@@ -183,8 +188,20 @@
       "icon_colour": "Couleur de l'icône",
       "reset": "Réinitialiser",
       "mobile_only": "Mobile uniquement",
+      "add_as_preset": "Ajouter comme vue",
       "count_summary": "{n} configurés",
       "back": "Retour aux paramètres"
+    },
+    "presets": {
+      "help": "Le bouton de recentrage passe par le marqueur suivi, Par défaut et ces vues. Touchez le nom à côté du bouton pour revenir.",
+      "add": "+ Ajouter une vue",
+      "name": "Nom (facultatif)",
+      "entity": "Suivre une entité (facultatif)",
+      "zoom_default": "Défaut de la carte",
+      "timeout": "Revenir après une inactivité de",
+      "timeout_never": "Jamais",
+      "timeout_minutes": "{n} min",
+      "timeout_default": "{n} min (par défaut)"
     },
     "display": {
       "show_zoom": "Afficher le zoom",

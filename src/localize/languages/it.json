@@ -58,6 +58,10 @@
     "credits_library": "Libreria",
     "carto_key_required": "I tile di CARTO richiedono una chiave API gratuita (carto_api_key). Senza, la mappa resta vuota: aggiungi una chiave o scegli un altro stile di mappa.",
     "close": "Chiudi",
+    "recenter": "Ricentra",
+    "stop_default": "Predefinito",
+    "preset_n": "Vista {n}",
+    "preset_clear": "Esci dalla vista",
     "lightning": {
       "popup_title": "Fulmine",
       "source_label": "Fonte: Blitzortung",
@@ -85,6 +89,7 @@
       "map": "Mappa",
       "location": "Posizione",
       "markers": "Marcatori",
+      "presets": "Viste",
       "display": "Visualizzazione",
       "interaction": "Interazione",
       "animation": "Animazione",
@@ -183,8 +188,20 @@
       "icon_colour": "Colore dell'icona",
       "reset": "Ripristina",
       "mobile_only": "Solo mobile",
+      "add_as_preset": "Aggiungi come vista",
       "count_summary": "{n} configurati",
       "back": "Torna alle impostazioni"
+    },
+    "presets": {
+      "help": "Il pulsante di ricentratura passa tra il marcatore seguito, Predefinito e queste viste. Tocca il nome accanto al pulsante per tornare.",
+      "add": "+ Aggiungi vista",
+      "name": "Nome (facoltativo)",
+      "entity": "Segui entità (facoltativo)",
+      "zoom_default": "Predefinito della scheda",
+      "timeout": "Torna dopo inattività di",
+      "timeout_never": "Mai",
+      "timeout_minutes": "{n} min",
+      "timeout_default": "{n} min (predefinito)"
     },
     "display": {
       "show_zoom": "Mostra zoom",

@@ -58,6 +58,10 @@
     "credits_library": "Biblioteka",
     "carto_key_required": "Kafelki CARTO wymagają bezpłatnego klucza API (carto_api_key). Bez niego mapa jest pusta: dodaj klucz lub wybierz inny styl mapy.",
     "close": "Zamknij",
+    "recenter": "Wyśrodkuj",
+    "stop_default": "Domyślny",
+    "preset_n": "Widok {n}",
+    "preset_clear": "Zamknij widok",
     "lightning": {
       "popup_title": "Uderzenie pioruna",
       "source_label": "Źródło: Blitzortung",
@@ -85,6 +89,7 @@
       "map": "Mapa",
       "location": "Lokalizacja",
       "markers": "Znaczniki",
+      "presets": "Widoki",
       "display": "Wyświetlanie",
       "interaction": "Interakcja",
       "animation": "Animacja",
@@ -183,8 +188,20 @@
       "icon_colour": "Kolor ikony",
       "reset": "Resetuj",
       "mobile_only": "Tylko mobilne",
+      "add_as_preset": "Dodaj jako widok",
       "count_summary": "{n} skonfigurowanych",
       "back": "Powrót do ustawień"
+    },
+    "presets": {
+      "help": "Przycisk wyśrodkowania przełącza między śledzonym znacznikiem, widokiem Domyślnym i tymi widokami. Dotknij nazwy obok przycisku, aby wrócić.",
+      "add": "+ Dodaj widok",
+      "name": "Nazwa (opcjonalnie)",
+      "entity": "Śledź encję (opcjonalnie)",
+      "zoom_default": "Domyślne karty",
+      "timeout": "Wróć po bezczynności przez",
+      "timeout_never": "Nigdy",
+      "timeout_minutes": "{n} min",
+      "timeout_default": "{n} min (domyślnie)"
     },
     "display": {
       "show_zoom": "Pokaż powiększenie",

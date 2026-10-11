@@ -58,6 +58,10 @@
     "credits_library": "Bibliotek",
     "carto_key_required": "CARTO-kartfliser trenger en gratis API-nøkkel (carto_api_key). Uten den er kartet tomt: legg inn en nøkkel eller velg en annen kartstil.",
     "close": "Lukk",
+    "recenter": "Sentrer",
+    "stop_default": "Standard",
+    "preset_n": "Visning {n}",
+    "preset_clear": "Avslutt visning",
     "lightning": {
       "popup_title": "Lynnedslag",
       "source_label": "Kilde: Blitzortung",
@@ -85,6 +89,7 @@
       "map": "Kart",
       "location": "Plassering",
       "markers": "Markører",
+      "presets": "Visninger",
       "display": "Visning",
       "interaction": "Interaksjon",
       "animation": "Animasjon",
@@ -183,8 +188,20 @@
       "icon_colour": "Ikonfarge",
       "reset": "Tilbakestill",
       "mobile_only": "Kun mobil",
+      "add_as_preset": "Legg til som visning",
       "count_summary": "{n} konfigurert",
       "back": "Tilbake til innstillinger"
+    },
+    "presets": {
+      "help": "Sentrer-knappen veksler mellom fulgt markør, Standard og disse visningene. Trykk på navnet ved knappen for å gå tilbake.",
+      "add": "+ Legg til visning",
+      "name": "Navn (valgfritt)",
+      "entity": "Følg entitet (valgfritt)",
+      "zoom_default": "Kortets standard",
+      "timeout": "Gå tilbake etter inaktivitet i",
+      "timeout_never": "Aldri",
+      "timeout_minutes": "{n} min",
+      "timeout_default": "{n} min (standard)"
     },
     "display": {
       "show_zoom": "Vis zoom",

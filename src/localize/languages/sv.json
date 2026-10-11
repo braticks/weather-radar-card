@@ -58,6 +58,10 @@
     "credits_library": "Bibliotek",
     "carto_key_required": "CARTO-kartbrickor behöver en gratis API-nyckel (carto_api_key). Utan den är kartan tom: lägg till en nyckel eller välj en annan kartstil.",
     "close": "Stäng",
+    "recenter": "Centrera",
+    "stop_default": "Standard",
+    "preset_n": "Vy {n}",
+    "preset_clear": "Lämna vy",
     "lightning": {
       "popup_title": "Blixtnedslag",
       "source_label": "Källa: Blitzortung",
@@ -85,6 +89,7 @@
       "map": "Karta",
       "location": "Plats",
       "markers": "Markörer",
+      "presets": "Vyer",
       "display": "Visning",
       "interaction": "Interaktion",
       "animation": "Animation",
@@ -183,8 +188,20 @@
       "icon_colour": "Ikonfärg",
       "reset": "Återställ",
       "mobile_only": "Endast mobil",
+      "add_as_preset": "Lägg till som vy",
       "count_summary": "{n} konfigurerade",
       "back": "Tillbaka till inställningar"
+    },
+    "presets": {
+      "help": "Centreringsknappen växlar mellan den följda markören, Standard och dessa vyer. Tryck på namnet bredvid knappen för att gå tillbaka.",
+      "add": "+ Lägg till vy",
+      "name": "Namn (valfritt)",
+      "entity": "Följ entitet (valfritt)",
+      "zoom_default": "Kortets standard",
+      "timeout": "Återgå efter inaktivitet i",
+      "timeout_never": "Aldrig",
+      "timeout_minutes": "{n} min",
+      "timeout_default": "{n} min (standard)"
     },
     "display": {
       "show_zoom": "Visa zoom",

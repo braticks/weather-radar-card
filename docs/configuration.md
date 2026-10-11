@@ -39,6 +39,8 @@ All options can be configured using the GUI editor — there is no need to edit 
 | vector_labels                 | string          | **Optional**   | `map_style: MapTilesVector` only. `above` draws place names over the radar, in a second WebGL context; `below` draws them under it, with one.                                                                                                                                                                                                                          | `above`                               |
 | theme_mode                    | string          | **Optional**   | `auto`, `light` or `dark`, as on HA's map card. Forces the light or dark version of `MapTilesVector`, `Auto` and `MapTiles` (see [Map Style](#map-style)).                                                                                                                                                                                                             | `auto`                                |
 | markers                       | list            | **Optional**   | List of map markers (see [Markers](markers.md))                                                                                                                                                                                                                                                                                                                        | none                                  |
+| presets                       | list            | **Optional**   | Views the re-centre button steps through (see [View presets](#view-presets))                                                                                                                                                                                                                                                                                           | none                                  |
+| preset_timeout                | number          | **Optional**   | Idle minutes before a preset, or Default while a marker is tracked, returns to the tracked marker or Default. `0` = never                                                                                                                                                                                                                                              | `5`                                   |
 | cluster_markers               | boolean         | **Optional**   | Cluster nearby markers into a badge; tap/click the badge to spiderfy (fan out) individual markers. The tracked marker always renders outside the cluster. Clusters containing a home marker render the home icon with a small superscript count badge.                                                                                                                 | `true`                                |
 | show_snow                     | boolean         | **Optional**   | Include snow in the precipitation display (RainViewer only)                                                                                                                                                                                                                                                                                                            | `false`                               |
 | show_color_bar                | boolean         | **Optional**   | Show the radar colour scale bar (per-source palette: RainViewer universal-blue, NWS reflectivity for NOAA, DWD precipitation gradient for DWD)                                                                                                                                                                                                                         | `true`                                |
@@ -58,7 +60,7 @@ All options can be configured using the GUI editor — there is no need to edit 
 | show_zoom                     | boolean         | **Optional**   | Show zoom controls                                                                                                                                                                                                                                                                                                                                                     | `false`                               |
 | square_map                    | boolean         | **Optional**   | Keep the map square. Editor disables this toggle when a `height` is set (or a sections-grid cell pins the height).                                                                                                                                                                                                                                                     | `false`                               |
 | show_playback                 | boolean         | **Optional**   | Show playback controls toolbar. Has no effect for a single static frame (`past_minutes: 0` with no `forecast_minutes`) — nothing to play/pause, so the editor hides the toggle and the toolbar stays off.                                                                                                                                                              | `false`                               |
-| show_recenter                 | boolean         | **Optional**   | Show re-center button in toolbar                                                                                                                                                                                                                                                                                                                                       | `false`                               |
+| show_recenter                 | boolean         | **Optional**   | Show the re-centre button, at the bottom of the toolbar. On by default once `presets` are set                                                                                                                                                                                                                                                                          | `false`                               |
 | show_range                    | boolean         | **Optional**   | Show range rings around the first marker                                                                                                                                                                                                                                                                                                                               | `false`                               |
 | extra_labels                  | boolean         | **Optional**   | Show more place labels (labels become smaller). Raster maps draw their tiles a zoom level higher at half size. `MapTilesVector`, and Satellite's labels, draw each label kind a zoom level earlier (street names two, from zoom 11, where the tiles start carrying them), about 15% smaller and packed tighter.                                                                                                                                                                                                                                                                                          | `false`                               |
 | height                        | string          | **Optional**   | Custom card height using CSS units e.g. `'400px'`, `'50vh'`. Ignored when a sections-grid cell pins the height with a fixed row count — the cell wins (see [Sections-grid support](#sections-grid-support)).                                                                                                                                                           | `'400px'`                             |
@@ -204,6 +206,41 @@ data_source: DWD
 low_power_mode: true
 ```
 
+## View presets
+
+The re-centre button steps through a rotation of views. Each press moves to the next stop:
+
+1. the tracked marker, when a [`track`](markers.md#track-resolution) marker's entity reports a position;
+2. **Default**: the configured centre and `zoom_level`;
+3. each preset, in order;
+
+then back to the first. With a tracked marker and no presets, the button switches between the marker and Default; with neither, it just re-centres. A press after you've panned or zoomed away returns to the current stop instead. `double_tap_action: recenter` steps through the same rotation.
+
+Beside the button, the tracked marker's name or *Default* shows for 5 seconds. A preset's name stays as a chip: tap it to go back to the tracked marker, or to Default when nothing tracked has a position. While a preset (or Default, with a tracked marker) is showing, tracking doesn't move the map. After `preset_timeout` minutes without a touch (default 5, `0` for never) the card goes back on its own.
+
+| Field                    | Type   | Description                                                                                                                           |
+|--------------------------|--------|---------------------------------------------------------------------------------------------------------------------------------------|
+| `name`                   | string | Shown beside the button. Defaults to the entity's name, else *Preset N*.                                                              |
+| `entity`                 | string | A `device_tracker`, `person` or `zone` to centre on, followed while the preset shows. Falls back to `latitude`/`longitude` without a position. |
+| `latitude` / `longitude` | number | A fixed location.                                                                                                                     |
+| `zoom`                   | number | Zoom level, 3–16. Defaults to `zoom_level`.                                                                                           |
+
+A preset with no position (an entity without one and no coordinates) is skipped, and so is a preset of the tracked entity at the card's own zoom, which would repeat the tracked stop. At another zoom it's a stop of its own: the tracked stop uses `zoom_level`, the preset its `zoom`. In the editor, *Presets* sits under *Markers and Overlays*, and *Add as preset* on a marker copies it there.
+
+```yaml
+markers:
+  - entity: person.alex
+    track: entity
+presets:
+  - name: Bay Area
+    latitude: 37.6
+    longitude: -122.2
+    zoom: 9
+  - entity: device_tracker.van
+    zoom: 12
+preset_timeout: 10
+```
+
 ## Double-tap action
 
 `double_tap_action` fires when the user double-clicks the map (or double-taps on touch).
@@ -213,7 +250,7 @@ Simple shortcut values:
 | Value         | Behaviour                                                                                             |
 |---------------|-------------------------------------------------------------------------------------------------------|
 | `zoom_in`     | Default. Leaflet's built-in double-click zoom remains active; no card action runs.                    |
-| `recenter`    | Return the map to the configured center and zoom. Suppresses Leaflet's built-in zoom.                 |
+| `recenter`    | Return the map to the configured center and zoom, or with `presets`, step through them like the button. Suppresses Leaflet's built-in zoom. |
 | `toggle_play` | Toggle radar playback on/off. Suppresses Leaflet's built-in zoom.                                     |
 | `none`        | Do nothing. Suppresses Leaflet's built-in zoom too — when you really want double-click to be a no-op. |
 

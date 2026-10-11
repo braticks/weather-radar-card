@@ -114,7 +114,10 @@ import {
 } from './coordinate-utils';
 import { parseDwdTimeOverride } from './forecast-refresh';
 import { createMarkerIconForMarker, HOME_PATH } from './marker-icon';
-import { migrateConfig, frameCountIsOverridden, resolveMarkerPosition, resolveTracking } from './marker-utils';
+import {
+  migrateConfig, frameCountIsOverridden, resolveMarkerPosition, resolveTracking, movedBeyondJitter,
+} from './marker-utils';
+import { ViewPresets, StopChange, recenterRequested } from './view-presets';
 import { WildfireLayer } from './wildfire-layer';
 import { NwsAlertsLayer } from './nws-alerts-layer';
 import { LightningLayer } from './lightning-layer';
@@ -213,6 +216,8 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
   private _trackedMarkerIdx = -1;
   private _clusterSpiderfied = false;
   private _lastTrackedPosition: { lat: number; lon: number } | null = null;
+  // The re-centre rotation: tracked marker, Default, presets.
+  private _viewPresets: ViewPresets | null = null;
   private _rangeRings: L.Circle[] = [];
   private _player: RadarPlayer | null = null;
   // Per-user, per-card preference store. Created lazily on the first
@@ -407,6 +412,7 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
     if (r4(current.lat) === r4(target.lat)
       && r4(current.lng) === r4(target.lon)
       && this._map.getZoom() === targetZoom) return;
+    this._viewPresets?.drop();
     this._map.setView([target.lat, target.lon], targetZoom);
   }
 
@@ -506,6 +512,7 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
         const hasTracking = (this._config?.markers ?? []).some(m => m.track);
         if (hasTracking) this._resolveTracking();
       }
+      if (!this._userMoveInProgress) this._viewPresets?.follow();
       this._wildfireLayer?.updateHass(this.hass);
       this._alertsLayer?.updateHass(this.hass);
       this._lightningLayer?.updateHass(this.hass);
@@ -740,6 +747,14 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
     this._ensureViewerState();
     this._viewerState?.ensureIdentity();
     this._setupToolbar();
+    this._viewPresets = new ViewPresets({
+      map: this._map,
+      getConfig: () => this._config,
+      getHass: () => this.hass,
+      defaultCenter: () => this._resolveCenter(),
+      onChange: (change) => this._onStopChange(change),
+    });
+    this._updateRecenterTitle();
     this._setupNavListeners();
     this._setupPopupPanRestore();
     this._setupDoubleTapAction();
@@ -836,6 +851,8 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
     this._alertsLayer = null;
     this._lightningLayer?.clear();
     this._lightningLayer = null;
+    this._viewPresets?.dispose();
+    this._viewPresets = null;
     if (this._clusterGroup) { this._clusterGroup.clearLayers(); this._clusterGroup = null; }
     this._clusterSpiderfied = false;
     // Before the map goes: removing the vector layer frees its WebGL context.
@@ -1225,15 +1242,11 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
         lMarker.setZIndexOffset(newWinnerIdx === i ? 1000 : 0);
       }
     }
-    if (result) {
+    if (this._viewPresets?.isHolding) {
+      // A held preset or Default owns the view; ViewPresets.follow() moves it.
+    } else if (result) {
       const last = this._lastTrackedPosition;
-      // Only pan when the tracked marker has actually moved (>~10 m).
-      // Calling panTo every hass tick with the same coords causes unnecessary
-      // map animation and move events even when the entity hasn't changed position.
-      const moved = !last ||
-        Math.abs(last.lat - result.lat) > 0.0001 ||
-        Math.abs(last.lon - result.lon) > 0.0001;
-      if (moved) {
+      if (!last || movedBeyondJitter(last, result)) {
         this._lastTrackedPosition = { lat: result.lat, lon: result.lon };
         this._map.panTo([result.lat, result.lon]);
       }
@@ -1268,7 +1281,7 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
   private _setupToolbar(): void {
     if (!this._map) return;
     const cfg = this._config;
-    const showRecenter = cfg.show_recenter === true && cfg.static_map !== true;
+    const showRecenter = recenterRequested(cfg) && cfg.static_map !== true;
     const showPlayback = shouldShowPlayback(cfg);
     if (!showRecenter && !showPlayback) return;
     // The button starts at the user's saved speed when the ViewerState cache
@@ -1281,7 +1294,8 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
       showRecenter,
       showPlayback,
       initialPlaying: cfg.start_paused !== true,
-      onRecenter: () => this._recenter(),
+      onRecenter: () => this._onRecenter(),
+      onClearStop: () => this._viewPresets?.clear(),
       onPlay: () => this._player?.togglePlay(),
       onSkipBack: () => this._player?.skipBack(),
       onSkipNext: () => this._player?.skipNext(),
@@ -1327,7 +1341,7 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
     if (action === undefined || action === 'zoom_in' || action === 'none') return;
     this._map.on('dblclick', (e: L.LeafletMouseEvent) => {
       L.DomEvent.stopPropagation(e);
-      if (action === 'recenter') { this._recenter(); return; }
+      if (action === 'recenter') { this._onRecenter(); return; }
       if (action === 'toggle_play') { this._player?.togglePlay(); return; }
       // HA action object — e.g. {action: 'navigate', navigation_path: '/lovelace/1'}
       if (typeof action === 'object') {
@@ -1350,10 +1364,29 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
     );
   }
 
-  private _recenter(): void {
-    if (!this._map) return;
-    const c = this._resolveCenter();
-    this._map.setView([c.lat, c.lon], this._config.zoom_level ?? 7);
+  private _onRecenter(): void {
+    this._viewPresets?.recenter();
+  }
+
+  private _onStopChange(change: StopChange): void {
+    // Tapping the toolbar bubbles a pointerdown to the map container, which
+    // marks a user move. This move is the card's: left marked, moveend would
+    // copy the stop into the editor's centre fields and _resolveTracking
+    // would skip its next update.
+    this._userMoveInProgress = false;
+    if (change.held === null) {
+      // Back at rest, tracking resumes from where the winner is now, so it
+      // doesn't pan again to a spot the rotation has just centred on.
+      const w = resolveTracking(this._config?.markers ?? [], this.hass,
+        this.hass?.config?.latitude ?? 0, this.hass?.config?.longitude ?? 0);
+      this._lastTrackedPosition = w ? { lat: w.lat, lon: w.lon } : null;
+    }
+    this._toolbar?.showStopLabel(change.label, change.sticky);
+    this._updateRecenterTitle();
+  }
+
+  private _updateRecenterTitle(): void {
+    if (this._viewPresets) this._toolbar?.setRecenterTitle(this._viewPresets.nextLabel());
   }
 
   // ── Navigation pause ──────────────────────────────────────────────────────
@@ -1391,7 +1424,10 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
     // pointerdown and wheel fire for real user gestures but NOT for programmatic
     // moves like invalidateSize() or setView(). Use them to gate the save button.
     this._navContainer = (this._map as any).getContainer() as HTMLElement;
-    this._markUserMove = (): void => { this._userMoveInProgress = true; };
+    this._markUserMove = (): void => {
+      this._userMoveInProgress = true;
+      this._viewPresets?.touch();
+    };
     this._navContainer.addEventListener('pointerdown', this._markUserMove, { passive: true });
     if (isWheelZoomEnabled(this._config)) {
       this._navContainer.addEventListener('wheel', this._markUserMove, { passive: true });
@@ -1410,10 +1446,13 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
       // into the editor's Lat/Long/Zoom fields. WYSIWYG — no save button.
       // editMode alone isn't enough (it just means the dashboard is
       // editable); _editorOpen is set by the editor element's lifecycle.
-      if (this._userMoveInProgress && this.editMode && this._editorOpen) {
+      // Not while a stop is held: panning around a preset isn't choosing
+      // the card's centre.
+      if (this._userMoveInProgress && this.editMode && this._editorOpen && !this._viewPresets?.isHolding) {
         this._pushCenterToEditor();
       }
       this._userMoveInProgress = false;
+      this._updateRecenterTitle();
     });
   }
 
@@ -1580,6 +1619,22 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
       .marker-mdi-icon { background: none; border: none; }
       .radar-toolbar { background: white; border-radius: 4px; }
       .radar-toolbar li { list-style: none; }
+      /* Beside the bottom (re-centre) button, outside the bar. Taps pass
+         through to the map unless it's a preset's chip, which clears it. */
+      .radar-stop-label {
+        position: absolute; right: calc(100% + 6px); bottom: 0;
+        height: 30px; box-sizing: border-box; max-width: 180px;
+        display: flex; align-items: center; gap: 6px; padding: 0 10px;
+        background: white; background-clip: padding-box; color: #333;
+        border: 2px solid rgba(0, 0, 0, 0.2); border-radius: 4px;
+        font: inherit; line-height: 1; white-space: nowrap;
+        pointer-events: none;
+      }
+      .radar-stop-label[hidden] { display: none; }
+      .radar-stop-label.sticky { pointer-events: auto; cursor: pointer; }
+      .radar-stop-name { overflow: hidden; text-overflow: ellipsis; }
+      .radar-stop-clear { display: none; font-size: 16px; color: #666; }
+      .radar-stop-label.sticky .radar-stop-clear { display: inline; }
       #div-progress-bar {
         position: relative; z-index: 1001;
         background: var(--ha-card-background, var(--card-background-color));

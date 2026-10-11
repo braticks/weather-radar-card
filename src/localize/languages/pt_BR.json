@@ -58,6 +58,10 @@
     "credits_library": "Biblioteca",
     "carto_key_required": "Os blocos do CARTO precisam de uma chave de API gratuita (carto_api_key). Sem ela o mapa fica em branco: adicione uma chave ou escolha outro estilo de mapa.",
     "close": "Fechar",
+    "recenter": "Recentralizar",
+    "stop_default": "Padrão",
+    "preset_n": "Vista {n}",
+    "preset_clear": "Sair da vista",
     "lightning": {
       "popup_title": "Impacto de raio",
       "source_label": "Fonte: Blitzortung",
@@ -85,6 +89,7 @@
       "map": "Mapa",
       "location": "Localização",
       "markers": "Marcadores",
+      "presets": "Vistas",
       "display": "Exibição",
       "interaction": "Interação",
       "animation": "Animação",
@@ -183,8 +188,20 @@
       "icon_colour": "Cor do ícone",
       "reset": "Redefinir",
       "mobile_only": "Apenas mobile",
+      "add_as_preset": "Adicionar como vista",
       "count_summary": "{n} configurados",
       "back": "Voltar às configurações"
+    },
+    "presets": {
+      "help": "O botão de recentralizar alterna entre o marcador seguido, Padrão e estas vistas. Toque no nome ao lado do botão para voltar.",
+      "add": "+ Adicionar vista",
+      "name": "Nome (opcional)",
+      "entity": "Seguir entidade (opcional)",
+      "zoom_default": "Padrão do cartão",
+      "timeout": "Voltar após inatividade de",
+      "timeout_never": "Nunca",
+      "timeout_minutes": "{n} min",
+      "timeout_default": "{n} min (padrão)"
     },
     "display": {
       "show_zoom": "Mostrar zoom",
