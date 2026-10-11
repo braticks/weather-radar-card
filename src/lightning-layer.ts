@@ -14,6 +14,7 @@ import {
   formatBlitzortungUrl,
   relativeTime,
 } from './lightning-helpers';
+import { Z_LIGHTNING } from './const';
 
 // Lightning overlay — renders Blitzortung integration's per-strike
 // geo_location entities onto a single canvas, fill-coloured by age.
@@ -67,12 +68,10 @@ const PULSE_MS = 600;
 // when a pan reveals them; the moveend repaint re-centres the margin.
 const CANVAS_PAD_FRACTION = 0.5;
 
-// Custom Leaflet pane between the default overlayPane (400, radar tiles
-// + hazard polygons) and the default markerPane (600, home / person /
-// device-tracker markers): lightning is visible over an alert polygon,
-// and the home marker stays on top of any strike at the same point.
+// Custom Leaflet pane over the alert and fire polygons (overlayPane, 400),
+// so lightning shows over a warning, and under the place names and the
+// home / person / device-tracker markers (see const.ts).
 const LIGHTNING_PANE = 'wrc-lightning';
-const LIGHTNING_PANE_Z = 500;
 
 interface Strike {
   ts: number;        // epoch ms when the strike occurred / was first seen
@@ -181,7 +180,7 @@ export class LightningLayer {
   private _ensurePane(): void {
     if (this._map.getPane(LIGHTNING_PANE)) return;
     const pane = this._map.createPane(LIGHTNING_PANE);
-    pane.style.zIndex = String(LIGHTNING_PANE_Z);
+    pane.style.zIndex = String(Z_LIGHTNING);
     pane.style.pointerEvents = 'none';
   }
 

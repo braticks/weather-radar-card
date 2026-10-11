@@ -1,6 +1,7 @@
 import * as L from 'leaflet';
 import { windGridFetcher, sampleWindGridBilinear, type WindGrid } from './wind-grid-fetcher';
 import { DEFAULT_WIND_SOURCE, type WindSource } from './wind-source-caps';
+import { hazardMarkerPane } from './hazard-marker-pane';
 
 const ICON_GRID_DEG = 0.25;
 const MAX_POINTS = 400;
@@ -187,7 +188,7 @@ export class WindOverlay {
       const speed = Math.hypot(s.u, s.v);
       const icon = this._style === 'barbs' ? barbIcon(s.u, s.v, speed, size) : arrowIcon(s.u, s.v, speed, size);
       if (!icon) continue;
-      const marker = L.marker([p.lat, p.lon], { icon, interactive: false, keyboard: false });
+      const marker = L.marker([p.lat, p.lon], { icon, interactive: false, keyboard: false, pane: hazardMarkerPane(this._map) });
       this._layer.addLayer(marker);
     }
   }

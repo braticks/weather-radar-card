@@ -8,6 +8,7 @@ import { sharedCanvasRenderer } from './shared-canvas-renderer';
 import { escapeHtml } from './string-utils';
 import { findInciwebPage, inciwebCandidates, inciwebUrl, knownInciwebPage } from './inciweb';
 import { mapsEqual } from './map-utils';
+import { hazardMarkerPane } from './hazard-marker-pane';
 
 const decisionsEqual = mapsEqual<string, 'polygon' | 'icon'>;
 
@@ -478,7 +479,7 @@ export class WildfireLayer {
           iconSize: [size, size],
           className: 'wildfire-icon',
         });
-        const marker = L.marker(item.latLng, { icon });
+        const marker = L.marker(item.latLng, { icon, pane: hazardMarkerPane(this._map) });
         this._bindPopup(marker, props);
         marker.addTo(this._iconLayer!);
       }

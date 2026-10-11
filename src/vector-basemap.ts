@@ -3,6 +3,7 @@ import * as L from 'leaflet';
 import type { HomeAssistant } from 'custom-card-helpers';
 import { startMapTilesToken } from './map-tiles-token';
 import { vectorStyleName } from './basemap-styles';
+import { Z_PLACE_LABELS } from './const';
 
 // map_style: MapTilesVector (experimental, opt-in): HA 2026.10's vector map,
 // drawn in one of HA's styles from OSM Shortbread tiles that core's
@@ -31,13 +32,13 @@ const RECOVERY_THROTTLE_MS = 30_000;
 // draws it empty), so only the TileJSON's 404 gets here.
 const RECOVERABLE_STATUS = new Set([0, 401, 403, 404]);
 // The labels' own pane: over the radar (240), the wind flow (250), DWD's
-// coverage wash (350) and hazard overlays (400), so every name stays
-// readable; under lightning (500), markers and popups. Clicks pass through
-// to the warnings below: the pane is pointer-events: none, and nothing in it
-// turns them back on (MapLibre only does for controls and popups, and this
-// map has neither).
+// coverage wash (350), hazard polygons (400), lightning and the wind and
+// fire icons (see const.ts), so every name stays readable; under the user's
+// markers and popups. Clicks pass through to the warnings and fire icons
+// below: the pane is pointer-events: none, and nothing in it turns them
+// back on (MapLibre only does for controls and popups, and this map has
+// neither).
 const LABEL_PANE = 'wrcVectorLabels';
-const LABEL_PANE_Z_INDEX = 450;
 
 type GlLayer = L.Layer & { getMaplibreMap(): any };
 
@@ -417,6 +418,6 @@ export function startVectorBasemap(opts: {
 function ensureLabelPane(map: L.Map): void {
   if (map.getPane(LABEL_PANE)) return;
   const pane = map.createPane(LABEL_PANE);
-  pane.style.zIndex = String(LABEL_PANE_Z_INDEX);
+  pane.style.zIndex = String(Z_PLACE_LABELS);
   pane.style.pointerEvents = 'none';
 }
