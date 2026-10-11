@@ -62,6 +62,12 @@
     "stop_default": "Domyślny",
     "preset_n": "Widok {n}",
     "preset_clear": "Zamknij widok",
+    "layers": {
+      "alerts": "Ostrzeżenia NWS",
+      "wind": "Wiatr",
+      "wildfires": "Pożary",
+      "lightning": "Pioruny"
+    },
     "lightning": {
       "popup_title": "Uderzenie pioruna",
       "source_label": "Źródło: Blitzortung",
@@ -207,6 +213,7 @@
       "show_zoom": "Pokaż powiększenie",
       "show_playback": "Pokaż odtwarzanie",
       "show_recenter": "Pokaż wyśrodkowanie",
+      "show_layer_toggles": "Pokaż przełączniki warstw",
       "show_scale": "Pokaż skalę",
       "show_range": "Pokaż zasięg",
       "extra_labels": "Dodatkowe etykiety",

@@ -62,6 +62,12 @@
     "stop_default": "Padrão",
     "preset_n": "Vista {n}",
     "preset_clear": "Sair da vista",
+    "layers": {
+      "alerts": "Alertas NWS",
+      "wind": "Vento",
+      "wildfires": "Incêndios florestais",
+      "lightning": "Raios"
+    },
     "lightning": {
       "popup_title": "Impacto de raio",
       "source_label": "Fonte: Blitzortung",
@@ -207,6 +213,7 @@
       "show_zoom": "Mostrar zoom",
       "show_playback": "Mostrar reprodução",
       "show_recenter": "Mostrar recentralizar",
+      "show_layer_toggles": "Mostrar botões de camadas",
       "show_scale": "Mostrar escala",
       "show_range": "Mostrar alcance",
       "extra_labels": "Rótulos adicionais",

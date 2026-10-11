@@ -62,6 +62,12 @@
     "stop_default": "Standaard",
     "preset_n": "Weergave {n}",
     "preset_clear": "Weergave sluiten",
+    "layers": {
+      "alerts": "NWS-waarschuwingen",
+      "wind": "Wind",
+      "wildfires": "Bosbranden",
+      "lightning": "Bliksem"
+    },
     "lightning": {
       "popup_title": "Bliksemtreffer",
       "source_label": "Bron: Blitzortung",
@@ -207,6 +213,7 @@
       "show_zoom": "Zoom tonen",
       "show_playback": "Afspelen tonen",
       "show_recenter": "Centreren tonen",
+      "show_layer_toggles": "Laagknoppen tonen",
       "show_scale": "Schaal tonen",
       "show_range": "Bereik tonen",
       "extra_labels": "Extra labels",

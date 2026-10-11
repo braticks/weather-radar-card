@@ -62,6 +62,12 @@
     "stop_default": "Standard",
     "preset_n": "Visning {n}",
     "preset_clear": "Avslutt visning",
+    "layers": {
+      "alerts": "NWS-varsler",
+      "wind": "Vind",
+      "wildfires": "Skogbranner",
+      "lightning": "Lyn"
+    },
     "lightning": {
       "popup_title": "Lynnedslag",
       "source_label": "Kilde: Blitzortung",
@@ -207,6 +213,7 @@
       "show_zoom": "Vis zoom",
       "show_playback": "Vis avspilling",
       "show_recenter": "Vis sentrer",
+      "show_layer_toggles": "Vis lagbrytere",
       "show_scale": "Vis skala",
       "show_range": "Vis rekkevidde",
       "extra_labels": "Ekstra etiketter",

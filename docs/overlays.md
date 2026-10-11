@@ -4,6 +4,20 @@ Optional overlays that stack on top of the radar. Two are US-only (Wildfires, NW
 
 For non-US instances, the card surfaces a banner reminding the user that the data is US-only when either of the US-specific overlays is enabled with `hass.config.country !== 'US'`.
 
+## Turning overlays on and off
+
+`show_layer_toggles: true` adds a row of buttons to the map's top-right corner, one for each overlay the card has turned on: NWS alerts, wind (arrows or barbs and streamlines together), wildfires and lightning. A tap hides or shows that overlay; a hidden overlay stops fetching until it's shown again. The buttons only offer what the config enables, so a viewer can't turn on an overlay the dashboard leaves off.
+
+Choices last until the page reloads. With `viewer_layer_control: true` they're saved for each user and follow them across browsers and devices, as the playback speed does.
+
+```yaml
+show_layer_toggles: true
+viewer_layer_control: true   # optional: remember each viewer's choices
+show_alerts: true
+show_wildfires: true
+dwd_wind: arrows
+```
+
 ## Wildfires
 
 When `show_wildfires: true`, the card overlays active US wildfire perimeters from the National Interagency Fire Center's [WFIGS Current Interagency Fire Perimeters](https://data-nifc.opendata.arcgis.com/datasets/nifc::wfigs-current-interagency-fire-perimeters/about) feed.

@@ -37,6 +37,8 @@ export interface WeatherRadarCardConfig extends LovelaceCardConfig {
   show_scale: boolean;
   show_playback: boolean;
   show_recenter: boolean;
+  /** Top-right buttons that show or hide each configured overlay. */
+  show_layer_toggles?: boolean;
   static_map: boolean;
   show_zoom: boolean;
   square_map: boolean;

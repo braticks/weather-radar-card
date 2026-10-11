@@ -62,6 +62,12 @@
     "stop_default": "Standard",
     "preset_n": "Ansicht {n}",
     "preset_clear": "Ansicht verlassen",
+    "layers": {
+      "alerts": "NWS-Warnungen",
+      "wind": "Wind",
+      "wildfires": "Waldbrände",
+      "lightning": "Blitze"
+    },
     "lightning": {
       "popup_title": "Blitzeinschlag",
       "source_label": "Quelle: Blitzortung",
@@ -207,6 +213,7 @@
       "show_zoom": "Zoom anzeigen",
       "show_playback": "Wiedergabe anzeigen",
       "show_recenter": "Zentrieren-Button anzeigen",
+      "show_layer_toggles": "Ebenen-Schalter anzeigen",
       "show_scale": "Maßstab anzeigen",
       "show_range": "Reichweite anzeigen",
       "extra_labels": "Zusätzliche Beschriftungen",

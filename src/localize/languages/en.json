@@ -21,6 +21,12 @@
     "stop_default": "Default",
     "preset_n": "Preset {n}",
     "preset_clear": "Clear preset",
+    "layers": {
+      "alerts": "NWS alerts",
+      "wind": "Wind",
+      "wildfires": "Wildfires",
+      "lightning": "Lightning"
+    },
     "region_warning": {
       "wildfires_us_only": "Wildfire data is US-only. Your Home Assistant location is outside the US — no fires will show.",
       "noaa_us_only": "NOAA radar is US-only. Your Home Assistant location is outside the US — radar may not load.",
@@ -207,6 +213,7 @@
       "show_zoom": "Show Zoom",
       "show_playback": "Show Playback",
       "show_recenter": "Show Recenter",
+      "show_layer_toggles": "Show Layer Toggles",
       "show_scale": "Show Scale",
       "show_range": "Show Range",
       "extra_labels": "Extra Labels",

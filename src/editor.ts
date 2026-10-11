@@ -438,6 +438,10 @@ export class WeatherRadarCardEditor extends LitElement implements LovelaceCardEd
             <ha-switch .checked=${config.show_range === true} .configValue=${'show_range'} @change=${this._valueChangedSwitch}></ha-switch>
             <span>${localize('editor.display.show_range')}</span>
           </label>
+          <label>
+            <ha-switch .checked=${config.show_layer_toggles === true} .configValue=${'show_layer_toggles'} @change=${this._valueChangedSwitch}></ha-switch>
+            <span>${localize('editor.display.show_layer_toggles')}</span>
+          </label>
         </div>
         <div class="side-by-side">
           <label>

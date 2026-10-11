@@ -62,6 +62,12 @@
     "stop_default": "Standard",
     "preset_n": "Vy {n}",
     "preset_clear": "Lämna vy",
+    "layers": {
+      "alerts": "NWS-varningar",
+      "wind": "Vind",
+      "wildfires": "Skogsbränder",
+      "lightning": "Blixtar"
+    },
     "lightning": {
       "popup_title": "Blixtnedslag",
       "source_label": "Källa: Blitzortung",
@@ -207,6 +213,7 @@
       "show_zoom": "Visa zoom",
       "show_playback": "Visa uppspelning",
       "show_recenter": "Visa centrering",
+      "show_layer_toggles": "Visa lagerknappar",
       "show_scale": "Visa skala",
       "show_range": "Visa räckvidd",
       "extra_labels": "Extra etiketter",

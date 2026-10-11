@@ -62,6 +62,12 @@
     "stop_default": "Predefinito",
     "preset_n": "Vista {n}",
     "preset_clear": "Esci dalla vista",
+    "layers": {
+      "alerts": "Allarmi NWS",
+      "wind": "Vento",
+      "wildfires": "Incendi",
+      "lightning": "Fulmini"
+    },
     "lightning": {
       "popup_title": "Fulmine",
       "source_label": "Fonte: Blitzortung",
@@ -207,6 +213,7 @@
       "show_zoom": "Mostra zoom",
       "show_playback": "Mostra riproduzione",
       "show_recenter": "Mostra ricentratura",
+      "show_layer_toggles": "Mostra interruttori livelli",
       "show_scale": "Mostra scala",
       "show_range": "Mostra portata",
       "extra_labels": "Etichette aggiuntive",
