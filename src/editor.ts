@@ -413,41 +413,60 @@ export class WeatherRadarCardEditor extends LitElement implements LovelaceCardEd
 
         <!-- DISPLAY -->
         <h3 class="section-header">${localize('editor.section.display')}</h3>
-        <div class="side-by-side">
-          <label>
-            <ha-switch .checked=${config.show_zoom === true} .configValue=${'show_zoom'} @change=${this._valueChangedSwitch}></ha-switch>
-            <span>${localize('editor.display.show_zoom')}</span>
-          </label>
+        <div class="toggle-group-label">${localize('editor.display.group_buttons')}</div>
+        <div class="toggle-grid">
+            <label>
+              <ha-switch .checked=${config.show_zoom === true} .configValue=${'show_zoom'} @change=${this._valueChangedSwitch}></ha-switch>
+              <span>${localize('editor.display.show_zoom')}</span>
+            </label>
           ${getEffectiveTimeRange(config).frameCount > 1 ? html`
-          <label>
-            <ha-switch .checked=${config.show_playback === true} .configValue=${'show_playback'} @change=${this._valueChangedSwitch}></ha-switch>
-            <span>${localize('editor.display.show_playback')}</span>
-          </label>
+            <label>
+              <ha-switch .checked=${config.show_playback === true} .configValue=${'show_playback'} @change=${this._valueChangedSwitch}></ha-switch>
+              <span>${localize('editor.display.show_playback')}</span>
+            </label>
           ` : ''}
-          <label>
-            <ha-switch .checked=${recenterRequested(config)} .configValue=${'show_recenter'} @change=${this._valueChangedSwitch}></ha-switch>
-            <span>${localize('editor.display.show_recenter')}</span>
-          </label>
+            <label>
+              <ha-switch .checked=${recenterRequested(config)} .configValue=${'show_recenter'} @change=${this._valueChangedSwitch}></ha-switch>
+              <span>${localize('editor.display.show_recenter')}</span>
+            </label>
+            <label>
+              <ha-switch .checked=${config.show_layer_toggles === true} .configValue=${'show_layer_toggles'} @change=${this._valueChangedSwitch}></ha-switch>
+              <span>${localize('editor.display.show_layer_toggles')}</span>
+            </label>
         </div>
-        <div class="side-by-side">
-          <label>
-            <ha-switch .checked=${config.show_scale === true} .configValue=${'show_scale'} @change=${this._valueChangedSwitch}></ha-switch>
-            <span>${localize('editor.display.show_scale')}</span>
-          </label>
-          <label>
-            <ha-switch .checked=${config.show_range === true} .configValue=${'show_range'} @change=${this._valueChangedSwitch}></ha-switch>
-            <span>${localize('editor.display.show_range')}</span>
-          </label>
-          <label>
-            <ha-switch .checked=${config.show_layer_toggles === true} .configValue=${'show_layer_toggles'} @change=${this._valueChangedSwitch}></ha-switch>
-            <span>${localize('editor.display.show_layer_toggles')}</span>
-          </label>
+        <div class="toggle-group-label">${localize('editor.display.group_on_map')}</div>
+        <div class="toggle-grid">
+            <label>
+              <ha-switch .checked=${config.show_scale === true} .configValue=${'show_scale'} @change=${this._valueChangedSwitch}></ha-switch>
+              <span>${localize('editor.display.show_scale')}</span>
+            </label>
+            <label>
+              <ha-switch .checked=${config.show_range === true} .configValue=${'show_range'} @change=${this._valueChangedSwitch}></ha-switch>
+              <span>${localize('editor.display.show_range')}</span>
+            </label>
+            <label>
+              <ha-switch .checked=${config.cluster_markers !== false} .configValue=${'cluster_markers'} @change=${this._valueChangedSwitch}></ha-switch>
+              <span>${localize('editor.display.cluster_markers')}</span>
+            </label>
+            <label>
+              <ha-switch .checked=${config.show_snow === true} .configValue=${'show_snow'} @change=${this._valueChangedSwitch}></ha-switch>
+              <span>${localize('editor.display.show_snow')}</span>
+            </label>
         </div>
-        <div class="side-by-side">
-          <label>
-            <ha-switch .checked=${config.static_map === true} .configValue=${'static_map'} @change=${this._valueChangedSwitch}></ha-switch>
-            <span>${localize('editor.display.static_map')}</span>
-          </label>
+        <div class="toggle-group-label">${localize('editor.display.group_around_map')}</div>
+        <div class="toggle-grid">
+            <label>
+              <ha-switch .checked=${config.show_color_bar !== false} .configValue=${'show_color_bar'} @change=${this._valueChangedSwitch}></ha-switch>
+              <span>${localize('editor.display.show_color_bar')}</span>
+            </label>
+            <label>
+              <ha-switch .checked=${config.show_progress_bar !== false} .configValue=${'show_progress_bar'} @change=${this._valueChangedSwitch}></ha-switch>
+              <span>${localize('editor.display.show_progress_bar')}</span>
+            </label>
+            <label>
+              <ha-switch .checked=${config.show_loading_spinner !== false} .configValue=${'show_loading_spinner'} @change=${this._valueChangedSwitch}></ha-switch>
+              <span>${localize('editor.display.show_loading_spinner')}</span>
+            </label>
           ${(() => {
             // square_map has no effect once the card's height is being
             // externally pinned: an explicit `height:` config wins, and
@@ -470,29 +489,8 @@ export class WeatherRadarCardEditor extends LitElement implements LovelaceCardEd
               </label>
             `;
           })()}
-          <label>
-            <ha-switch .checked=${config.cluster_markers !== false} .configValue=${'cluster_markers'} @change=${this._valueChangedSwitch}></ha-switch>
-            <span>${localize('editor.display.cluster_markers')}</span>
-          </label>
         </div>
-        <div class="side-by-side">
-          <label>
-            <ha-switch .checked=${config.show_snow === true} .configValue=${'show_snow'} @change=${this._valueChangedSwitch}></ha-switch>
-            <span>${localize('editor.display.show_snow')}</span>
-          </label>
-          <label>
-            <ha-switch .checked=${config.show_color_bar !== false} .configValue=${'show_color_bar'} @change=${this._valueChangedSwitch}></ha-switch>
-            <span>${localize('editor.display.show_color_bar')}</span>
-          </label>
-          <label>
-            <ha-switch .checked=${config.show_progress_bar !== false} .configValue=${'show_progress_bar'} @change=${this._valueChangedSwitch}></ha-switch>
-            <span>${localize('editor.display.show_progress_bar')}</span>
-          </label>
-          <label>
-            <ha-switch .checked=${config.show_loading_spinner !== false} .configValue=${'show_loading_spinner'} @change=${this._valueChangedSwitch}></ha-switch>
-            <span>${localize('editor.display.show_loading_spinner')}</span>
-          </label>
-        </div>
+        <div class="toggle-group-label">${localize('editor.display.group_off_screen')}</div>
         <label>
           <ha-switch .checked=${config.preload_while_hidden === true} .configValue=${'preload_while_hidden'} @change=${this._valueChangedSwitch}></ha-switch>
           <span>${localize('editor.display.preload_while_hidden')}</span>
@@ -501,6 +499,10 @@ export class WeatherRadarCardEditor extends LitElement implements LovelaceCardEd
 
         <!-- INTERACTION -->
         <h3 class="section-header">${localize('editor.section.interaction')}</h3>
+        <label>
+          <ha-switch .checked=${config.static_map === true} .configValue=${'static_map'} @change=${this._valueChangedSwitch}></ha-switch>
+          <span>${localize('editor.display.static_map')}</span>
+        </label>
         <label>
           <ha-switch .checked=${config.disable_scroll === true} .configValue=${'disable_scroll'} @change=${this._valueChangedSwitch}></ha-switch>
           <span>${localize('editor.interaction.disable_scroll')}</span>
@@ -1756,6 +1758,19 @@ export class WeatherRadarCardEditor extends LitElement implements LovelaceCardEd
     .side-by-side {
       display: flex;
       gap: 8px;
+    }
+    /* Display toggles: small headed groups, two columns where the editor
+       is wide enough, one where it isn't. */
+    .toggle-group-label {
+      font-size: 0.85em;
+      font-weight: 500;
+      color: var(--secondary-text-color);
+      margin: 8px 0 0;
+    }
+    .toggle-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+      column-gap: 12px;
     }
     .side-by-side > * {
       flex: 1;
