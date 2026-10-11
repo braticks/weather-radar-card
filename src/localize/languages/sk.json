@@ -62,6 +62,12 @@
     "stop_default": "Predvolené",
     "preset_n": "Pohľad {n}",
     "preset_clear": "Zavrieť pohľad",
+    "layers": {
+      "alerts": "Výstrahy NWS",
+      "wind": "Vietor",
+      "wildfires": "Lesné požiare",
+      "lightning": "Blesky"
+    },
     "lightning": {
       "popup_title": "Úder blesku",
       "source_label": "Zdroj: Blitzortung",
@@ -207,6 +213,7 @@
       "show_zoom": "Zobraziť priblíženie",
       "show_playback": "Zobraziť prehrávanie",
       "show_recenter": "Zobraziť vycentrovanie",
+      "show_layer_toggles": "Zobraziť prepínače vrstiev",
       "show_scale": "Zobraziť mierku",
       "show_range": "Zobraziť dosah",
       "extra_labels": "Extra menovky",

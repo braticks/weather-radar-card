@@ -123,6 +123,11 @@ export class ViewerState {
     return this._registeredNonce !== null;
   }
 
+  /** True once hydrate() has finished, whether or not the read succeeded. */
+  get isHydrated(): boolean {
+    return this._hydrated;
+  }
+
   /** Full WS storage key, or null when inactive. */
   get storageKey(): string | null {
     return this._registeredNonce ? STORAGE_KEY_PREFIX + this._registeredNonce : null;

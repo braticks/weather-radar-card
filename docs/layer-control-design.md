@@ -2,7 +2,9 @@
 
 User-controlled show/hide of individual map overlays in real time, with state persisted per-user via Home Assistant's frontend storage API. No editor round-trip, no YAML edits, no dashboard reload.
 
-## Status — proposed; persistence dependency shipped
+## Status — v1 built in 4.0 as a toggle row, not this panel
+
+4.0 ships a simpler first version (owner's choice, October 2026): `show_layer_toggles` puts one icon button per configured overlay (alerts, wind, wildfires, lightning) in a row at the map's top-right, one tap each, instead of the `mdi:layers` button and panel below. It keeps this design's B-strict curation, sparse overrides and ViewerState persistence, but persistence stays opt-in through `viewer_layer_control` rather than that switch also showing the control, since it already turns on playback-speed persistence. Radar, range rings and DWD coverage rows and "Reset to defaults" are not in v1. The rest of this document is the original proposal.
 
 Tracking issue: TBD on creation.
 

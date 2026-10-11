@@ -130,6 +130,9 @@ export class LightningLayer {
   private _bufferMaxTs = 0;
 
   private _ageTimer: ReturnType<typeof setInterval> | null = null;
+  // Opened on the map, not bound to a layer, so removing the canvas
+  // doesn't close it: clear() must.
+  private _popup: L.Popup | null = null;
   // Set in pause(), cleared in resume(). Differs from the wildfire/alerts
   // pattern: there's no fetch to reschedule, just the age-recompute timer.
   private _pausedAt: number | null = null;
@@ -194,6 +197,7 @@ export class LightningLayer {
 
   clear(): void {
     if (this._ageTimer) { clearInterval(this._ageTimer); this._ageTimer = null; }
+    if (this._popup) { this._map.closePopup(this._popup); this._popup = null; }
     this._map.off('moveend', this._onViewChange);
     this._map.off('zoomend', this._onViewChange);
     this._map.off('resize', this._onViewChange);
@@ -550,7 +554,7 @@ export class LightningLayer {
     // Anchored at the strike, not the click point, so the popup tail
     // points at the glyph the user hit. openOn closes any other open
     // popup (Leaflet's one-popup convention), matching marker behaviour.
-    L.popup({ autoPan: true, autoPanPadding: L.point(12, 12), maxHeight: this._popupMaxHeight() } as any)
+    this._popup = L.popup({ autoPan: true, autoPanPadding: L.point(12, 12), maxHeight: this._popupMaxHeight() } as any)
       .setLatLng([strike.lat, strike.lon])
       .setContent(this._popupHtml(strike))
       .openOn(this._map);

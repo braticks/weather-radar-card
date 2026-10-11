@@ -118,10 +118,12 @@ import {
   migrateConfig, frameCountIsOverridden, resolveMarkerPosition, resolveTracking, movedBeyondJitter,
 } from './marker-utils';
 import { ViewPresets, StopChange, recenterRequested } from './view-presets';
+import {
+  LayerToggleBar, OverlayKey, OverlayVisibility, OVERLAY_KEYS, overlayConfigured,
+} from './layer-toggles';
 import { WildfireLayer } from './wildfire-layer';
 import { NwsAlertsLayer } from './nws-alerts-layer';
 import { LightningLayer } from './lightning-layer';
-import { isBlitzortungLoaded } from './lightning-helpers';
 import { getRegionWarnings } from './region-warning';
 import { escapeHtml } from './string-utils';
 import { resolveCardLayout, isValidCssSize } from './card-layout';
@@ -211,6 +213,10 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
   private _windOverlay: WindOverlay | null = null;
   private _windFlow: WindFlowOverlay | null = null;
   private _toolbar: RadarToolbar | null = null;
+  private _layerToggles: LayerToggleBar | null = null;
+  // On the element, not the map, so a viewer's choices outlive the
+  // teardown and rebuild that every config edit or theme flip triggers.
+  private _overlayVisibility = new OverlayVisibility(() => this._viewerState);
   private _markers: Map<number, L.Marker> = new Map();
   private _clusterGroup: L.MarkerClusterGroup | null = null;
   private _trackedMarkerIdx = -1;
@@ -574,6 +580,9 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
       this._player.setSpeedMultiplier(speed);
       this._toolbar?.setSpeed(speed);
     }
+    // _initMap held the overlays back until the viewer's choices loaded.
+    this._applyOverlays();
+    this._layerToggles?.sync();
   }
 
   public disconnectedCallback(): void {
@@ -734,7 +743,6 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
       L.control.scale({ imperial: !metric, metric }).addTo(this._map);
     }
     this._setupBasemap(mapStyle);
-    this._setupWindOverlay();
     this._setupAttribution(mapStyle);
     this._setupMarkers(mapStyle);
     // Create + activate the preference store before the toolbar reads
@@ -747,6 +755,7 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
     this._ensureViewerState();
     this._viewerState?.ensureIdentity();
     this._setupToolbar();
+    this._setupLayerToggles();
     this._viewPresets = new ViewPresets({
       map: this._map,
       getConfig: () => this._config,
@@ -804,24 +813,93 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
     // internally too.
     this._player.start(getEffectiveTimeRange(cfg).frameCount);
 
-    if (cfg.show_wildfires === true) {
-      this._wildfireLayer = new WildfireLayer(this._map, () => this._config, this.hass);
-      this._wildfireLayer.start();
-    }
+    this._applyOverlays();
+  }
 
-    if (cfg.show_alerts === true) {
-      this._alertsLayer = new NwsAlertsLayer(this._map, () => this._config, this.hass);
-      this._alertsLayer.start();
-    }
+  // ── Overlays ──────────────────────────────────────────────────────────────
 
-    // Lightning overlay only attaches when the user has BOTH opted in via
-    // config AND has the Blitzortung integration loaded. The integration
-    // is the data source — without it the layer would silently render
-    // nothing, so we don't even instantiate it.
-    if (cfg.show_lightning === true && isBlitzortungLoaded(this.hass)) {
-      this._lightningLayer = new LightningLayer(this._map, () => this._config, this.hass);
-      this._lightningLayer.start();
+  // Starts each overlay the config turns on and the viewer hasn't hidden,
+  // and stops any other. Idempotent: runs at init, on a toggle, and once a
+  // viewer's saved choices load.
+  private _applyOverlays(): void {
+    if (!this._map) return;
+    // Until a viewer's saved choices load, start nothing: an overlay they
+    // hid would fetch and flash up before being torn down again.
+    const state = this._viewerState;
+    if (state?.isActive && !state.isHydrated) return;
+    for (const key of OVERLAY_KEYS) {
+      const want = overlayConfigured(key, this._config, this.hass) && this._overlayVisibility.isOn(key);
+      if (want && !this._overlayRunning(key)) this._startOverlay(key);
+      else if (!want && this._overlayRunning(key)) this._stopOverlay(key);
     }
+  }
+
+  private _overlayRunning(key: OverlayKey): boolean {
+    switch (key) {
+      case 'alerts': return this._alertsLayer !== null;
+      case 'wind': return this._windOverlay !== null || this._windFlow !== null;
+      case 'wildfires': return this._wildfireLayer !== null;
+      case 'lightning': return this._lightningLayer !== null;
+    }
+  }
+
+  private _startOverlay(key: OverlayKey): void {
+    if (!this._map) return;
+    switch (key) {
+      case 'alerts':
+        this._alertsLayer = new NwsAlertsLayer(this._map, () => this._config, this.hass);
+        this._alertsLayer.start();
+        break;
+      case 'wind':
+        this._setupWindOverlay();
+        break;
+      case 'wildfires':
+        this._wildfireLayer = new WildfireLayer(this._map, () => this._config, this.hass);
+        this._wildfireLayer.start();
+        break;
+      case 'lightning':
+        this._lightningLayer = new LightningLayer(this._map, () => this._config, this.hass);
+        this._lightningLayer.start();
+        break;
+    }
+  }
+
+  private _stopOverlay(key: OverlayKey): void {
+    switch (key) {
+      case 'alerts':
+        this._alertsLayer?.clear();
+        this._alertsLayer = null;
+        break;
+      case 'wind':
+        this._windOverlay?.destroy();
+        this._windOverlay = null;
+        this._windFlow?.destroy();
+        this._windFlow = null;
+        break;
+      case 'wildfires':
+        this._wildfireLayer?.clear();
+        this._wildfireLayer = null;
+        break;
+      case 'lightning':
+        this._lightningLayer?.clear();
+        this._lightningLayer = null;
+        break;
+    }
+  }
+
+  private _setupLayerToggles(): void {
+    if (!this._map || this._config.show_layer_toggles !== true) return;
+    const layers = OVERLAY_KEYS.filter((key) => overlayConfigured(key, this._config, this.hass));
+    if (layers.length === 0) return;
+    this._layerToggles = new LayerToggleBar({
+      layers,
+      isOn: (key) => this._overlayVisibility.isOn(key),
+      onToggle: (key, on) => {
+        this._overlayVisibility.set(key, on);
+        this._applyOverlays();
+      },
+    });
+    this._layerToggles.addTo(this._map);
   }
 
   private _teardown(): void {
@@ -869,6 +947,7 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
     this._windFlow?.destroy();
     this._windFlow = null;
     this._toolbar = null;
+    this._layerToggles = null;
     this._markers.clear();
     this._trackedMarkerIdx = -1;
     this._lastTrackedPosition = null;
@@ -1619,6 +1698,19 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
       .marker-mdi-icon { background: none; border: none; }
       .radar-toolbar { background: white; border-radius: 4px; }
       .radar-toolbar li { list-style: none; }
+      /* A Leaflet bar laid out as a row: Leaflet's own rules assume a
+         column (bottom borders, top/bottom corner radii). */
+      .radar-layer-toggles { display: flex; background: white; }
+      .radar-layer-toggles a.radar-layer-toggle {
+        display: flex; align-items: center; justify-content: center;
+        width: 30px; height: 30px; color: #444; border-radius: 0;
+        border-bottom: none; border-right: 1px solid #ccc;
+      }
+      .radar-layer-toggles a.radar-layer-toggle:first-child { border-radius: 2px 0 0 2px; }
+      .radar-layer-toggles a.radar-layer-toggle:last-child { border-right: none; border-radius: 0 2px 2px 0; }
+      .radar-layer-toggles a.radar-layer-toggle:only-child { border-radius: 2px; }
+      .radar-layer-toggle ha-icon { --mdc-icon-size: 20px; }
+      .radar-layer-toggles a.radar-layer-toggle.off { color: #bbb; background: #f4f4f4; }
       /* Beside the bottom (re-centre) button, outside the bar. Taps pass
          through to the map unless it's a preset's chip, which clears it. */
       .radar-stop-label {

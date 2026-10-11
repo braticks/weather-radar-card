@@ -62,6 +62,12 @@
     "stop_default": "Par défaut",
     "preset_n": "Vue {n}",
     "preset_clear": "Quitter la vue",
+    "layers": {
+      "alerts": "Alertes NWS",
+      "wind": "Vent",
+      "wildfires": "Feux de forêt",
+      "lightning": "Foudre"
+    },
     "lightning": {
       "popup_title": "Impact de foudre",
       "source_label": "Source : Blitzortung",
@@ -207,6 +213,7 @@
       "show_zoom": "Afficher le zoom",
       "show_playback": "Afficher la lecture",
       "show_recenter": "Afficher le recentrage",
+      "show_layer_toggles": "Afficher les boutons de calques",
       "show_scale": "Afficher l'échelle",
       "show_range": "Afficher la portée",
       "extra_labels": "Étiquettes supplémentaires",
