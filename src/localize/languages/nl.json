@@ -58,6 +58,10 @@
     "credits_library": "Bibliotheek",
     "carto_key_required": "CARTO-kaarttiles hebben een gratis API-sleutel nodig (carto_api_key). Zonder sleutel blijft de kaart leeg: voeg een sleutel toe of kies een andere kaartstijl.",
     "close": "Sluiten",
+    "recenter": "Centreren",
+    "stop_default": "Standaard",
+    "preset_n": "Weergave {n}",
+    "preset_clear": "Weergave sluiten",
     "lightning": {
       "popup_title": "Bliksemtreffer",
       "source_label": "Bron: Blitzortung",
@@ -85,6 +89,7 @@
       "map": "Kaart",
       "location": "Locatie",
       "markers": "Markeringen",
+      "presets": "Weergaven",
       "display": "Weergave",
       "interaction": "Interactie",
       "animation": "Animatie",
@@ -183,8 +188,20 @@
       "icon_colour": "Pictogramkleur",
       "reset": "Herstellen",
       "mobile_only": "Alleen mobiel",
+      "add_as_preset": "Toevoegen als weergave",
       "count_summary": "{n} geconfigureerd",
       "back": "Terug naar instellingen"
+    },
+    "presets": {
+      "help": "De centreerknop wisselt tussen de gevolgde markering, Standaard en deze weergaven. Tik op de naam naast de knop om terug te gaan.",
+      "add": "+ Weergave toevoegen",
+      "name": "Naam (optioneel)",
+      "entity": "Entiteit volgen (optioneel)",
+      "zoom_default": "Kaartstandaard",
+      "timeout": "Terug na inactiviteit van",
+      "timeout_never": "Nooit",
+      "timeout_minutes": "{n} min",
+      "timeout_default": "{n} min (standaard)"
     },
     "display": {
       "show_zoom": "Zoom tonen",

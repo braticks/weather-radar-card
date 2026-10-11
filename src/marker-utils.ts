@@ -109,6 +109,29 @@ export function migrateConfig(config: WeatherRadarCardConfig): WeatherRadarCardC
   return { ...config, markers };
 }
 
+/** An entity's reported position, or null when it has none (unavailable, no GPS). */
+export function entityPosition(
+  hass: HomeAssistant | undefined,
+  entityId: string,
+): { lat: number; lon: number } | null {
+  const state = hass?.states[entityId];
+  const lat = parseFloat(state?.attributes?.latitude as string);
+  const lon = parseFloat(state?.attributes?.longitude as string);
+  return !isNaN(lat) && !isNaN(lon) ? { lat, lon } : null;
+}
+
+/**
+ * True when a followed position has moved more than ~10 m. Following pans
+ * only past this, so an entity re-reporting the same fix doesn't animate
+ * the map and fire move events on every hass update.
+ */
+export function movedBeyondJitter(
+  last: { lat: number; lon: number },
+  next: { lat: number; lon: number },
+): boolean {
+  return Math.abs(last.lat - next.lat) > 0.0001 || Math.abs(last.lon - next.lon) > 0.0001;
+}
+
 export function resolveMarkerPosition(
   markerCfg: Marker,
   hass: HomeAssistant | undefined,
@@ -116,10 +139,8 @@ export function resolveMarkerPosition(
   fallbackLon: number,
 ): { lat: number; lon: number } {
   if (markerCfg.entity) {
-    const state = hass?.states[markerCfg.entity];
-    const lat = parseFloat(state?.attributes?.latitude as string);
-    const lon = parseFloat(state?.attributes?.longitude as string);
-    if (!isNaN(lat) && !isNaN(lon)) return { lat, lon };
+    const pos = entityPosition(hass, markerCfg.entity);
+    if (pos) return pos;
   }
   return {
     lat: markerCfg.latitude ?? fallbackLat,

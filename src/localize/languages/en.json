@@ -17,6 +17,10 @@
     "credits_library": "Library",
     "carto_key_required": "CARTO map tiles need a free API key (carto_api_key). Without one the map is blank: add a key or choose another map style.",
     "close": "Close",
+    "recenter": "Re-centre",
+    "stop_default": "Default",
+    "preset_n": "Preset {n}",
+    "preset_clear": "Clear preset",
     "region_warning": {
       "wildfires_us_only": "Wildfire data is US-only. Your Home Assistant location is outside the US — no fires will show.",
       "noaa_us_only": "NOAA radar is US-only. Your Home Assistant location is outside the US — radar may not load.",
@@ -85,6 +89,7 @@
       "map": "Map",
       "location": "Location",
       "markers": "Markers",
+      "presets": "Presets",
       "display": "Display",
       "interaction": "Interaction",
       "animation": "Animation",
@@ -183,8 +188,20 @@
       "icon_colour": "Icon colour",
       "reset": "Reset",
       "mobile_only": "Mobile only",
+      "add_as_preset": "Add as preset",
       "count_summary": "{n} configured",
       "back": "Back to settings"
+    },
+    "presets": {
+      "help": "The re-centre button steps through the tracked marker, Default and these presets. Tap a preset's name beside the button to go back.",
+      "add": "+ Add Preset",
+      "name": "Name (optional)",
+      "entity": "Follow entity (optional)",
+      "zoom_default": "Card default",
+      "timeout": "Return when idle for",
+      "timeout_never": "Never",
+      "timeout_minutes": "{n} min",
+      "timeout_default": "{n} min (default)"
     },
     "display": {
       "show_zoom": "Show Zoom",

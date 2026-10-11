@@ -2,8 +2,9 @@
 import { LitElement, html, TemplateResult, css, CSSResultGroup } from 'lit';
 import { HomeAssistant, fireEvent, LovelaceCardEditor } from 'custom-card-helpers';
 
-import { WeatherRadarCardConfig, CoordinateConfig, Marker } from './types';
+import { WeatherRadarCardConfig, CoordinateConfig, Marker, ViewPreset } from './types';
 import { migrateConfig } from './marker-utils';
+import { DEFAULT_PRESET_TIMEOUT_MIN, recenterRequested } from './view-presets';
 import { localize } from './localize/localize';
 import { ALL_ALERT_CATEGORIES, getActiveAlertCategories } from './nws-alert-categories';
 import { isBlitzortungLoaded } from './lightning-helpers';
@@ -22,6 +23,17 @@ import { customElement, property, state } from 'lit/decorators.js';
 // editorMaxPastMin. 20/40 give finer-grained control at the small end
 // where users care most; the upper end skips toward larger steps.
 const PAST_PRESETS_MIN = [20, 40, 60, 120, 240, 360, 720, 1440];
+
+// preset_timeout choices in minutes; 0 is never. The default
+// (DEFAULT_PRESET_TIMEOUT_MIN) is the empty choice, so picking it leaves
+// the key out of the YAML.
+const PRESET_TIMEOUT_CHOICES_MIN = [0, 1, 2, DEFAULT_PRESET_TIMEOUT_MIN, 10, 15, 30, 60];
+
+// '' and anything unparseable clear the field rather than storing NaN.
+function parseCoordinate(raw: string): number | undefined {
+  const n = parseFloat(raw.trim());
+  return Number.isFinite(n) ? n : undefined;
+}
 
 function formatDuration(min: number): string {
   if (min < 60) return `${min} min`;
@@ -88,7 +100,7 @@ export class WeatherRadarCardEditor extends LitElement implements LovelaceCardEd
   // Which sub-view of the editor is showing. Defaults to 'main' (the
   // top-level settings). Routing happens entirely in-memory — closing and
   // re-opening the editor returns to 'main', matching HA editor conventions.
-  @state() private _view: 'main' | 'markers' | 'overlays' | 'wind' = 'main';
+  @state() private _view: 'main' | 'markers' | 'presets' | 'overlays' | 'wind' = 'main';
 
   private _initialized = false;
 
@@ -151,6 +163,7 @@ export class WeatherRadarCardEditor extends LitElement implements LovelaceCardEd
     }
     if (!this._config) return html``;
     if (this._view === 'markers') return this._renderMarkersView(this._config);
+    if (this._view === 'presets') return this._renderPresetsView(this._config);
     if (this._view === 'overlays') return this._renderOverlaysView(this._config);
     if (this._view === 'wind') return this._renderWindView(this._config);
     return this._renderMainView(this._config);
@@ -373,6 +386,16 @@ export class WeatherRadarCardEditor extends LitElement implements LovelaceCardEd
         </button>
         <button
           class="subpage-nav-row"
+          @click=${() => this._setView('presets')}
+        >
+          <span class="subpage-nav-label">${localize('editor.section.presets')}</span>
+          <span class="subpage-nav-summary">
+            ${localize('editor.markers.count_summary').replace('{n}', String((config.presets ?? []).length))}
+          </span>
+          <span class="subpage-nav-chevron">›</span>
+        </button>
+        <button
+          class="subpage-nav-row"
           @click=${() => this._setView('overlays')}
         >
           <span class="subpage-nav-label">${localize('editor.section.overlays')}</span>
@@ -402,7 +425,7 @@ export class WeatherRadarCardEditor extends LitElement implements LovelaceCardEd
           </label>
           ` : ''}
           <label>
-            <ha-switch .checked=${config.show_recenter === true} .configValue=${'show_recenter'} @change=${this._valueChangedSwitch}></ha-switch>
+            <ha-switch .checked=${recenterRequested(config)} .configValue=${'show_recenter'} @change=${this._valueChangedSwitch}></ha-switch>
             <span>${localize('editor.display.show_recenter')}</span>
           </label>
         </div>
@@ -924,7 +947,115 @@ export class WeatherRadarCardEditor extends LitElement implements LovelaceCardEd
     `;
   }
 
-  private _setView(view: 'main' | 'markers' | 'overlays' | 'wind'): void {
+  private _renderPresetsView(config: WeatherRadarCardConfig): TemplateResult {
+    const presets = config.presets ?? [];
+    const timeoutOptions = PRESET_TIMEOUT_CHOICES_MIN.map((min) => (
+      min === 0 ? { value: '0', label: localize('editor.presets.timeout_never') }
+        : min === DEFAULT_PRESET_TIMEOUT_MIN
+          ? { value: '', label: localize('editor.presets.timeout_default', '{n}', String(min)) }
+          : { value: String(min), label: localize('editor.presets.timeout_minutes', '{n}', String(min)) }
+    ));
+    const timeout = config.preset_timeout;
+    return html`
+      <div class="values">
+        <button class="subpage-back" @click=${() => this._setView('main')}>
+          ‹ ${localize('editor.markers.back')}
+        </button>
+        <h3 class="section-header">${localize('editor.section.presets')}</h3>
+        <p class="section-description">${localize('editor.presets.help')}</p>
+        ${presets.map((p, i) => this._renderPresetRow(p, i))}
+        <ha-button class="add-marker-btn" @click=${() => this._setPresets([...presets, {}])}>${localize('editor.presets.add')}</ha-button>
+        <ha-selector
+          .hass=${this.hass}
+          .selector=${{ select: { options: timeoutOptions } }}
+          .value=${timeout === undefined || timeout === DEFAULT_PRESET_TIMEOUT_MIN ? '' : String(timeout)}
+          .label=${localize('editor.presets.timeout')}
+          .configValue=${'preset_timeout'}
+          .required=${false}
+          @value-changed=${this._handleSelectorNumberChanged}
+        ></ha-selector>
+      </div>
+    `;
+  }
+
+  private _renderPresetRow(p: ViewPreset, i: number): TemplateResult {
+    const zoomOptions = [{ value: '', label: localize('editor.presets.zoom_default') }];
+    for (let z = 3; z <= 16; z++) zoomOptions.push({ value: String(z), label: String(z) });
+    return html`
+      <div class="marker-row">
+        <div class="marker-row-header">
+          <span class="marker-row-label">${localize('ui.preset_n', '{n}', String(i + 1))}</span>
+          <ha-button class="remove-marker-btn" @click=${() => this._setPresets((this._config?.presets ?? []).filter((_, idx) => idx !== i))}>${localize('editor.markers.remove')}</ha-button>
+        </div>
+        <ha-input
+          label=${localize('editor.presets.name')}
+          .value=${p.name ?? ''}
+          @input=${(ev: Event) => this._setPresetField(i, 'name', (ev.target as HTMLInputElement).value.trim() || undefined)}
+        ></ha-input>
+        <ha-selector
+          .hass=${this.hass}
+          .selector=${{ entity: { filter: [{ domain: 'device_tracker' }, { domain: 'person' }, { domain: 'zone' }] } }}
+          .value=${p.entity ?? ''}
+          .label=${localize('editor.presets.entity')}
+          .required=${false}
+          @value-changed=${(ev: CustomEvent) => this._setPresetField(i, 'entity', ev.detail.value || undefined)}
+        ></ha-selector>
+        ${!p.entity ? html`
+          <div class="side-by-side">
+            <ha-input
+              label=${localize('editor.markers.latitude')}
+              .value=${p.latitude !== undefined ? String(p.latitude) : ''}
+              @input=${(ev: Event) => this._setPresetField(i, 'latitude', parseCoordinate((ev.target as HTMLInputElement).value))}
+            ></ha-input>
+            <ha-input
+              label=${localize('editor.markers.longitude')}
+              .value=${p.longitude !== undefined ? String(p.longitude) : ''}
+              @input=${(ev: Event) => this._setPresetField(i, 'longitude', parseCoordinate((ev.target as HTMLInputElement).value))}
+            ></ha-input>
+          </div>
+        ` : ''}
+        <ha-selector
+          .hass=${this.hass}
+          .selector=${{ select: { options: zoomOptions } }}
+          .value=${p.zoom !== undefined ? String(p.zoom) : ''}
+          .label=${localize('editor.map.zoom_level')}
+          .required=${false}
+          @value-changed=${(ev: CustomEvent) => {
+            // A cleared optional dropdown sends undefined, not ''.
+            const v = ev.detail.value;
+            this._setPresetField(i, 'zoom', v === '' || v == null ? undefined : Number(v));
+          }}
+        ></ha-selector>
+      </div>
+    `;
+  }
+
+  // Unset fields are removed rather than stored as undefined, so the YAML
+  // only carries what the user filled in.
+  private _setPresetField<K extends keyof ViewPreset>(i: number, field: K, value: ViewPreset[K] | undefined): void {
+    const presets = [...(this._config?.presets ?? [])];
+    if (!presets[i]) return;
+    const next = { ...presets[i] };
+    if (value === undefined) delete next[field];
+    else next[field] = value;
+    presets[i] = next;
+    this._setPresets(presets);
+  }
+
+  private _setPresets(presets: ViewPreset[]): void {
+    if (!this._config) return;
+    const config: WeatherRadarCardConfig = { ...this._config, presets };
+    if (presets.length === 0) delete config.presets;
+    this._config = config;
+    fireEvent(this, 'config-changed', { config });
+  }
+
+  private _addMarkerAsPreset(m: Marker): void {
+    const preset: ViewPreset = m.entity ? { entity: m.entity } : { latitude: m.latitude, longitude: m.longitude };
+    this._setPresets([...(this._config?.presets ?? []), preset]);
+  }
+
+  private _setView(view: 'main' | 'markers' | 'presets' | 'overlays' | 'wind'): void {
     this._view = view;
     // Scroll the editor pane back to the top so the user always lands at the
     // start of the new view, not part-way down where they were on the old one.
@@ -938,11 +1069,19 @@ export class WeatherRadarCardEditor extends LitElement implements LovelaceCardEd
       { value: 'true', label: localize('editor.markers.track_always') },
     ];
     const trackValue = m.track === true ? 'true' : (m.track === 'entity' ? 'entity' : '');
+    const presets = this._config?.presets ?? [];
+    const canAddAsPreset = m.entity
+      ? !presets.some((p) => p.entity === m.entity)
+      : Number.isFinite(m.latitude) && Number.isFinite(m.longitude)
+        && !presets.some((p) => !p.entity && p.latitude === m.latitude && p.longitude === m.longitude);
 
     return html`
       <div class="marker-row">
         <div class="marker-row-header">
           <span class="marker-row-label">${localize('editor.markers.label', '{n}', String(i + 1))}</span>
+          ${canAddAsPreset ? html`
+            <ha-button class="add-as-preset-btn" appearance="plain" @click=${() => this._addMarkerAsPreset(m)}>${localize('editor.markers.add_as_preset')}</ha-button>
+          ` : ''}
           <ha-button class="remove-marker-btn" @click=${() => this._removeMarker(i)}>${localize('editor.markers.remove')}</ha-button>
         </div>
         <ha-selector
@@ -1638,6 +1777,9 @@ export class WeatherRadarCardEditor extends LitElement implements LovelaceCardEd
       font-size: 0.85em;
       font-weight: 600;
       color: var(--secondary-text-color);
+    }
+    .add-as-preset-btn {
+      margin-left: auto;
     }
     .remove-marker-btn {
       font-size: 0.8em;

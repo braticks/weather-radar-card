@@ -58,6 +58,10 @@
     "credits_library": "Biblioteca",
     "carto_key_required": "Las teselas de CARTO necesitan una clave de API gratuita (carto_api_key). Sin ella el mapa queda en blanco: añade una clave o elige otro estilo de mapa.",
     "close": "Cerrar",
+    "recenter": "Recentrar",
+    "stop_default": "Predeterminado",
+    "preset_n": "Vista {n}",
+    "preset_clear": "Salir de la vista",
     "lightning": {
       "popup_title": "Impacto de rayo",
       "source_label": "Fuente: Blitzortung",
@@ -85,6 +89,7 @@
       "map": "Mapa",
       "location": "Ubicación",
       "markers": "Marcadores",
+      "presets": "Vistas",
       "display": "Visualización",
       "interaction": "Interacción",
       "animation": "Animación",
@@ -183,8 +188,20 @@
       "icon_colour": "Color del icono",
       "reset": "Restablecer",
       "mobile_only": "Solo móvil",
+      "add_as_preset": "Añadir como vista",
       "count_summary": "{n} configurados",
       "back": "Volver a la configuración"
+    },
+    "presets": {
+      "help": "El botón de recentrar recorre el marcador seguido, Predeterminado y estas vistas. Toca el nombre junto al botón para volver.",
+      "add": "+ Añadir vista",
+      "name": "Nombre (opcional)",
+      "entity": "Seguir entidad (opcional)",
+      "zoom_default": "Predeterminado de la tarjeta",
+      "timeout": "Volver tras inactividad de",
+      "timeout_never": "Nunca",
+      "timeout_minutes": "{n} min",
+      "timeout_default": "{n} min (predeterminado)"
     },
     "display": {
       "show_zoom": "Mostrar zoom",

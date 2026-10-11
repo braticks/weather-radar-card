@@ -58,6 +58,10 @@
     "credits_library": "Bibliothek",
     "carto_key_required": "CARTO-Kartenkacheln brauchen einen kostenlosen API-Schlüssel (carto_api_key). Ohne ihn bleibt die Karte leer: Schlüssel eintragen oder einen anderen Kartenstil wählen.",
     "close": "Schließen",
+    "recenter": "Zentrieren",
+    "stop_default": "Standard",
+    "preset_n": "Ansicht {n}",
+    "preset_clear": "Ansicht verlassen",
     "lightning": {
       "popup_title": "Blitzeinschlag",
       "source_label": "Quelle: Blitzortung",
@@ -85,6 +89,7 @@
       "map": "Karte",
       "location": "Standort",
       "markers": "Markierungen",
+      "presets": "Ansichten",
       "display": "Anzeige",
       "interaction": "Interaktion",
       "animation": "Animation",
@@ -183,8 +188,20 @@
       "icon_colour": "Symbolfarbe",
       "reset": "Zurücksetzen",
       "mobile_only": "Nur Mobil",
+      "add_as_preset": "Als Ansicht hinzufügen",
       "count_summary": "{n} konfiguriert",
       "back": "Zurück zu den Einstellungen"
+    },
+    "presets": {
+      "help": "Der Zentrieren-Button wechselt zwischen verfolgter Markierung, Standard und diesen Ansichten. Tippe auf den Namen neben dem Button, um zurückzukehren.",
+      "add": "+ Ansicht hinzufügen",
+      "name": "Name (optional)",
+      "entity": "Entität folgen (optional)",
+      "zoom_default": "Kartenstandard",
+      "timeout": "Zurück nach Inaktivität von",
+      "timeout_never": "Nie",
+      "timeout_minutes": "{n} Min.",
+      "timeout_default": "{n} Min. (Standard)"
     },
     "display": {
       "show_zoom": "Zoom anzeigen",

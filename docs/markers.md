@@ -23,6 +23,8 @@ When multiple markers have `track` set, the card picks one to centre the map on 
 
 Multiple markers at the same priority level log a console warning and use the first one in the list.
 
+The re-centre button switches between the tracked marker and the configured centre (*Default*), then any [view presets](configuration.md#view-presets). Tracking pauses while Default or a preset is showing, and resumes after `preset_timeout` idle minutes or a tap on the preset's name. *Add as preset* in the editor copies a marker into `presets`.
+
 ## Default marker
 
 If `markers` is not set in the config, the card automatically creates a single `zone.home` marker so the map always shows your home location. To opt out entirely, set `markers: []` (an explicit empty array).

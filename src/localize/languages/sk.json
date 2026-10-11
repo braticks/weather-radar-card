@@ -58,6 +58,10 @@
     "credits_library": "Knižnica",
     "carto_key_required": "Dlaždice CARTO potrebujú bezplatný API kľúč (carto_api_key). Bez neho je mapa prázdna: zadajte kľúč alebo zvoľte iný štýl mapy.",
     "close": "Zavrieť",
+    "recenter": "Vycentrovať",
+    "stop_default": "Predvolené",
+    "preset_n": "Pohľad {n}",
+    "preset_clear": "Zavrieť pohľad",
     "lightning": {
       "popup_title": "Úder blesku",
       "source_label": "Zdroj: Blitzortung",
@@ -85,6 +89,7 @@
       "map": "Mapa",
       "location": "Poloha",
       "markers": "Značky",
+      "presets": "Pohľady",
       "display": "Zobrazenie",
       "interaction": "Interakcia",
       "animation": "Animácia",
@@ -183,8 +188,20 @@
       "icon_colour": "Farba ikony",
       "reset": "Obnoviť",
       "mobile_only": "Iba mobil",
+      "add_as_preset": "Pridať ako pohľad",
       "count_summary": "{n} nakonfigurovaných",
       "back": "Späť na nastavenia"
+    },
+    "presets": {
+      "help": "Tlačidlo vycentrovania prepína medzi sledovanou značkou, Predvoleným a týmito pohľadmi. Ťuknutím na názov vedľa tlačidla sa vrátite.",
+      "add": "+ Pridať pohľad",
+      "name": "Názov (voliteľné)",
+      "entity": "Sledovať entitu (voliteľné)",
+      "zoom_default": "Predvolené karty",
+      "timeout": "Vrátiť sa po nečinnosti",
+      "timeout_never": "Nikdy",
+      "timeout_minutes": "{n} min",
+      "timeout_default": "{n} min (predvolené)"
     },
     "display": {
       "show_zoom": "Zobraziť priblíženie",

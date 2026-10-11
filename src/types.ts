@@ -12,6 +12,16 @@ export interface Marker {
   mobile_only?: boolean;
 }
 
+// A view the re-centre button steps through. Follows `entity` while held,
+// else shows latitude/longitude.
+export interface ViewPreset {
+  name?: string;
+  entity?: string;
+  latitude?: number;
+  longitude?: number;
+  zoom?: number;
+}
+
 // Entity coordinate configuration for dynamic location from entity attributes
 export interface EntityCoordinate {
   entity: string;
@@ -147,6 +157,9 @@ export interface WeatherRadarCardConfig extends LovelaceCardConfig {
   center_latitude?: CoordinateConfig;
   zoom_level?: number;
   markers?: Marker[];
+  presets?: ViewPreset[];
+  /** Idle minutes before a held stop returns to the tracked marker or Default; 0 = never. Default 5. */
+  preset_timeout?: number;
   cluster_markers?: boolean;
   // Legacy single-marker fields — read-only; used only by _migrateConfig()
   /** @deprecated use markers[] */  show_marker?: boolean;
