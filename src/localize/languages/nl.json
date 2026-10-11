@@ -96,6 +96,7 @@
       "location": "Locatie",
       "markers": "Markeringen",
       "presets": "Weergaven",
+      "preset_views": "Vooraf ingestelde weergaven",
       "display": "Weergave",
       "interaction": "Interactie",
       "animation": "Animatie",

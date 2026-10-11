@@ -123,6 +123,19 @@ describe('editor Presets page', () => {
   });
 });
 
+describe('editor main page', () => {
+  it('gives presets their own Preset Views section, above Markers and Overlays', async () => {
+    document.body.innerHTML = '';
+    const ed = await renderEditor({ presets: [BAY] });
+    const headers = [...ed.shadowRoot.querySelectorAll('h3.section-header')].map((h: Element) => h.textContent!.trim());
+    expect(headers.indexOf('Preset Views')).toBe(headers.indexOf('Markers and Overlays') - 1);
+    const section = [...ed.shadowRoot.querySelectorAll('h3.section-header')].find((h: Element) => h.textContent!.trim() === 'Preset Views')!;
+    const row = section.nextElementSibling as HTMLElement;
+    expect(row.querySelector('.subpage-nav-label')!.textContent!.trim()).toBe('Presets');
+    expect(row.nextElementSibling!.textContent!.trim()).toBe('Markers and Overlays');
+  });
+});
+
 describe('dropdowns show their default', () => {
   beforeEach(() => {
     document.body.innerHTML = '';

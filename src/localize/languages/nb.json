@@ -96,6 +96,7 @@
       "location": "Plassering",
       "markers": "Markører",
       "presets": "Visninger",
+      "preset_views": "Forhåndsvalgte visninger",
       "display": "Visning",
       "interaction": "Interaksjon",
       "animation": "Animasjon",

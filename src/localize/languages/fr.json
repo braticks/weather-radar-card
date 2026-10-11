@@ -96,6 +96,7 @@
       "location": "Emplacement",
       "markers": "Marqueurs",
       "presets": "Vues",
+      "preset_views": "Vues prédéfinies",
       "display": "Affichage",
       "interaction": "Interaction",
       "animation": "Animation",

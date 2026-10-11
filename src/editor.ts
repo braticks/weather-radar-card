@@ -394,6 +394,19 @@ export class WeatherRadarCardEditor extends LitElement implements LovelaceCardEd
           @value-changed=${this._handleSelectorNumberChanged}
         ></ha-selector>
 
+        <!-- PRESET VIEWS -->
+        <h3 class="section-header">${localize('editor.section.preset_views')}</h3>
+        <button
+          class="subpage-nav-row"
+          @click=${() => this._setView('presets')}
+        >
+          <span class="subpage-nav-label">${localize('editor.section.presets')}</span>
+          <span class="subpage-nav-summary">
+            ${localize('editor.markers.count_summary').replace('{n}', String((config.presets ?? []).length))}
+          </span>
+          <span class="subpage-nav-chevron">›</span>
+        </button>
+
         <!-- MARKERS AND OVERLAYS -->
         <h3 class="section-header">${localize('editor.section.markers_and_overlays')}</h3>
         <button
@@ -403,16 +416,6 @@ export class WeatherRadarCardEditor extends LitElement implements LovelaceCardEd
           <span class="subpage-nav-label">${localize('editor.section.markers')}</span>
           <span class="subpage-nav-summary">
             ${localize('editor.markers.count_summary').replace('{n}', String((config.markers ?? []).length))}
-          </span>
-          <span class="subpage-nav-chevron">›</span>
-        </button>
-        <button
-          class="subpage-nav-row"
-          @click=${() => this._setView('presets')}
-        >
-          <span class="subpage-nav-label">${localize('editor.section.presets')}</span>
-          <span class="subpage-nav-summary">
-            ${localize('editor.markers.count_summary').replace('{n}', String((config.presets ?? []).length))}
           </span>
           <span class="subpage-nav-chevron">›</span>
         </button>

@@ -96,6 +96,7 @@
       "location": "Location",
       "markers": "Markers",
       "presets": "Presets",
+      "preset_views": "Preset Views",
       "display": "Display",
       "interaction": "Interaction",
       "animation": "Animation",
