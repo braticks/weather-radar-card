@@ -96,6 +96,7 @@
       "location": "Poloha",
       "markers": "Značky",
       "presets": "Pohľady",
+      "preset_views": "Prednastavené pohľady",
       "display": "Zobrazenie",
       "interaction": "Interakcia",
       "animation": "Animácia",
@@ -200,6 +201,8 @@
     },
     "presets": {
       "help": "Tlačidlo vycentrovania prepína medzi sledovanou značkou, Predvoleným a týmito pohľadmi. Ťuknutím na názov vedľa tlačidla sa vrátite.",
+      "help_map": "Otvorený pohľad sa zobrazí na mape: posuňte a priblížte ho tam, aby ste ho nastavili.",
+      "drag": "Potiahnutím zmeníte poradie",
       "add": "+ Pridať pohľad",
       "name": "Názov (voliteľné)",
       "entity": "Sledovať entitu (voliteľné)",

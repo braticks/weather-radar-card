@@ -96,6 +96,7 @@
       "location": "Standort",
       "markers": "Markierungen",
       "presets": "Ansichten",
+      "preset_views": "Voreingestellte Ansichten",
       "display": "Anzeige",
       "interaction": "Interaktion",
       "animation": "Animation",
@@ -200,6 +201,8 @@
     },
     "presets": {
       "help": "Der Zentrieren-Button wechselt zwischen verfolgter Markierung, Standard und diesen Ansichten. Tippe auf den Namen neben dem Button, um zurückzukehren.",
+      "help_map": "Die geöffnete Ansicht erscheint auf der Karte: Verschiebe und zoome sie dort, um sie festzulegen.",
+      "drag": "Zum Umsortieren ziehen",
       "add": "+ Ansicht hinzufügen",
       "name": "Name (optional)",
       "entity": "Entität folgen (optional)",

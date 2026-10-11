@@ -12,6 +12,33 @@ const ON_STOP_PX = 10;
 
 type LatLon = { lat: number; lon: number };
 
+// The editor and its preview card talk through window events, as the
+// centre back-propagation does. The open preset also lives on window, so a
+// preview rebuilt or mounted after the editor still finds it.
+/** Editor → preview: the preset open in the editor, or null. */
+export const PRESET_FOCUS_EVENT = 'weather-radar-preset-focus';
+/** Preview → editor: the map was moved by hand while a preset was open. */
+export const PRESET_MAP_EVENT = 'weather-radar-preset-map';
+
+export interface PresetMapMove {
+  index: number;
+  latitude: number;
+  longitude: number;
+  zoom: number;
+}
+
+type PresetFocusWindow = { __weatherRadarPresetFocus?: number | null };
+
+export function setEditorPresetFocus(index: number | null): void {
+  (window as PresetFocusWindow).__weatherRadarPresetFocus = index;
+  window.dispatchEvent(new CustomEvent(PRESET_FOCUS_EVENT, { detail: { index } }));
+}
+
+export function editorPresetFocus(): number | null {
+  const v = (window as PresetFocusWindow).__weatherRadarPresetFocus;
+  return typeof v === 'number' ? v : null;
+}
+
 /** A rotation stop: the live tracked marker, the configured view, or a preset index. */
 export type StopKey = 'tracked' | 'default' | number;
 
@@ -116,6 +143,8 @@ export class ViewPresets {
   private _held: 'default' | number | null = null;
   private _timer: ReturnType<typeof setTimeout> | null = null;
   private _lastFollowed: LatLon | null = null;
+  // The preset open in the editor, held for as long as it's open.
+  private _editing: number | null = null;
 
   constructor(private readonly _host: PresetHost) {}
 
@@ -146,6 +175,24 @@ export class ViewPresets {
     this._held = null;
     this._disarm();
     this._host.onChange({ held: null, label: null, sticky: false });
+  }
+
+  /**
+   * The editor has preset i open: hold it with no idle timeout, so the
+   * preview shows what's being edited; null hands the map back to rest. A
+   * preset already in view isn't re-shown, so a map drag written back to
+   * the config doesn't jump the map.
+   */
+  edit(i: number | null): void {
+    const was = this._editing;
+    this._editing = i;
+    if (i === null) {
+      if (was !== null) this.clear();
+      return;
+    }
+    const view = this._view(i);
+    if (this._held === i && (!view || this._isAt(view))) return;
+    this._go(i);
   }
 
   /** On a hass update: keep a held entity preset in view as it moves. */
@@ -258,6 +305,7 @@ export class ViewPresets {
 
   private _arm(): void {
     this._disarm();
+    if (this._editing !== null) return;
     const ms = presetTimeoutMs(this._host.getConfig());
     if (ms === null) return;
     this._timer = setTimeout(() => {

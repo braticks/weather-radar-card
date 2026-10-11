@@ -96,6 +96,7 @@
       "location": "Location",
       "markers": "Markers",
       "presets": "Presets",
+      "preset_views": "Preset Views",
       "display": "Display",
       "interaction": "Interaction",
       "animation": "Animation",
@@ -200,6 +201,8 @@
     },
     "presets": {
       "help": "The re-centre button steps through the tracked marker, Default and these presets. Tap a preset's name beside the button to go back.",
+      "help_map": "The open preset shows on the map: pan and zoom it there to set it.",
+      "drag": "Drag to reorder",
       "add": "+ Add Preset",
       "name": "Name (optional)",
       "entity": "Follow entity (optional)",

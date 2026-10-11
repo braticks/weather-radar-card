@@ -96,6 +96,7 @@
       "location": "Locatie",
       "markers": "Markeringen",
       "presets": "Weergaven",
+      "preset_views": "Vooraf ingestelde weergaven",
       "display": "Weergave",
       "interaction": "Interactie",
       "animation": "Animatie",
@@ -200,6 +201,8 @@
     },
     "presets": {
       "help": "De centreerknop wisselt tussen de gevolgde markering, Standaard en deze weergaven. Tik op de naam naast de knop om terug te gaan.",
+      "help_map": "De geopende weergave staat op de kaart: verschuif en zoom hem daar om hem in te stellen.",
+      "drag": "Sleep om te herschikken",
       "add": "+ Weergave toevoegen",
       "name": "Naam (optioneel)",
       "entity": "Entiteit volgen (optioneel)",

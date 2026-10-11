@@ -96,6 +96,7 @@
       "location": "Emplacement",
       "markers": "Marqueurs",
       "presets": "Vues",
+      "preset_views": "Vues prédéfinies",
       "display": "Affichage",
       "interaction": "Interaction",
       "animation": "Animation",
@@ -200,6 +201,8 @@
     },
     "presets": {
       "help": "Le bouton de recentrage passe par le marqueur suivi, Par défaut et ces vues. Touchez le nom à côté du bouton pour revenir.",
+      "help_map": "La vue ouverte s’affiche sur la carte : déplacez-la et zoomez-y pour la définir.",
+      "drag": "Glisser pour réordonner",
       "add": "+ Ajouter une vue",
       "name": "Nom (facultatif)",
       "entity": "Suivre une entité (facultatif)",

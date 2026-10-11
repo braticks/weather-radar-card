@@ -117,7 +117,12 @@ import { createMarkerIconForMarker, HOME_PATH } from './marker-icon';
 import {
   migrateConfig, frameCountIsOverridden, resolveMarkerPosition, resolveTracking, movedBeyondJitter,
 } from './marker-utils';
-import { ViewPresets, StopChange, recenterRequested } from './view-presets';
+import {
+  ViewPresets, StopChange, recenterRequested, PRESET_FOCUS_EVENT, PRESET_MAP_EVENT, PresetMapMove,
+  editorPresetFocus,
+} from './view-presets';
+import { closestAncestor, deepQueryAll, hasAncestor } from './dom-ancestry';
+import { cardColumns, sectionCardWidth } from './section-width';
 import {
   LayerToggleBar, OverlayKey, OverlayVisibility, OVERLAY_KEYS, overlayConfigured,
 } from './layer-toggles';
@@ -166,6 +171,24 @@ let frameCountOverdeterminedWarned = false;
 const VIEW_BACKPROP_KEYS = new Set(['center_latitude', 'center_longitude', 'zoom_level']);
 const PLAYBACK_SPEED_KEYS = new Set(['playback_speed']);
 const IDENTITY_KEYS = new Set(['_layer_state_id']);
+// Presets are read live by ViewPresets, so editing them needs no rebuild;
+// the editor writes them on every keystroke and map drag.
+const PRESET_KEYS = new Set(['presets', 'preset_timeout']);
+
+// The dashboard's grid for a section config. HA rebuilds the preview on
+// every edit, and finding the grid walks the whole dashboard.
+const sectionGrids = new WeakMap<object, HTMLElement>();
+
+function findSectionGrid(sectionConfig: object): HTMLElement | null {
+  const cached = sectionGrids.get(sectionConfig);
+  if (cached?.isConnected) return cached;
+  const section = deepQueryAll(document, 'hui-section').find((el) =>
+    (el as unknown as { config?: unknown }).config === sectionConfig && !hasAncestor(el, 'hui-dialog-edit-card'));
+  const grid = section ? deepQueryAll(section.shadowRoot ?? section, 'div')
+    .find((el) => getComputedStyle(el).display === 'grid') as HTMLElement | undefined : undefined;
+  if (grid) sectionGrids.set(sectionConfig, grid);
+  return grid ?? null;
+}
 
 @customElement('weather-radar-card')
 export class WeatherRadarCard extends LitElement implements LovelaceCard {
@@ -293,13 +316,18 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
    * the picker passes hass through like a normal mount.
    */
   private _isInPickerPreview(): boolean {
-    let el: Node | null = this.parentNode ?? (this.getRootNode() as ShadowRoot)?.host ?? null;
-    while (el) {
-      const tag = (el as Element)?.tagName?.toLowerCase?.();
-      if (tag === 'hui-card-picker') return true;
-      el = (el as ShadowRoot).host ?? el.parentNode;
-    }
-    return false;
+    return hasAncestor(this, 'hui-card-picker');
+  }
+
+  // The edit dialog's preview, the one card the open editor talks to: cards
+  // on the dashboard behind the dialog hear the same window events.
+  private _isEditorPreview(): boolean {
+    return hasAncestor(this, 'hui-dialog-edit-card');
+  }
+
+  /** The preset open in this card's editor, when this card is its preview. */
+  private _previewPresetFocus(): number | null {
+    return this._isEditorPreview() ? editorPresetFocus() : null;
   }
 
   // ── HA lifecycle ──────────────────────────────────────────────────────────
@@ -310,6 +338,7 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
     }
     const oldConfig = this._config;
     this._config = this._migrateConfig(config);
+    if (this.isConnected) this._fitEditorPreview();
     // Try to create the preference store. On the very first setConfig
     // this is usually a no-op: HA calls setConfig BEFORE assigning hass,
     // so there's nothing to build it with yet. _initMap (which only runs
@@ -350,6 +379,17 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
     // nonce (activating the store) and hydrate so a persisted override
     // loads now that the storage key is stable — without tearing the
     // map down again. Nothing else visible changes.
+    if (this._map && oldConfig && isOnlyKeysChanged(oldConfig, this._config, PRESET_KEYS)
+      && recenterRequested(oldConfig) === recenterRequested(this._config)) {
+      // Keep the preview on the preset being edited: typed coordinates move
+      // it there, and a map drag written back is already in view.
+      const focus = this._previewPresetFocus();
+      if (focus !== null) this._viewPresets?.edit(focus);
+      else this._viewPresets?.drop();
+      this._updateRecenterTitle();
+      this._viewerState?.ensureIdentity();
+      return;
+    }
     if (this._map && oldConfig && isOnlyKeysChanged(oldConfig, this._config, IDENTITY_KEYS)) {
       this._viewerState?.ensureIdentity();
       void this._hydrateViewerState();
@@ -543,6 +583,8 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
     if ((window as unknown as { __weatherRadarCardEditorCount?: number }).__weatherRadarCardEditorCount) {
       this._editorOpen = true;
     }
+    window.addEventListener(PRESET_FOCUS_EVENT, this._onPresetFocus);
+    this._fitEditorPreview();
     // HA detaches and re-attaches the card when re-organising the DOM
     // (entering/exiting edit mode, sections-grid layout changes). disconnectedCallback
     // calls _teardown() which removes the Leaflet map; connectedCallback
@@ -593,6 +635,7 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
     if (this._rebuildTimer) { clearTimeout(this._rebuildTimer); this._rebuildTimer = null; }
     if (this._editorOpenedHandler) window.removeEventListener('weather-radar-editor-opened', this._editorOpenedHandler);
     if (this._editorClosedHandler) window.removeEventListener('weather-radar-editor-closed', this._editorClosedHandler);
+    window.removeEventListener(PRESET_FOCUS_EVENT, this._onPresetFocus);
     this._editorOpenedHandler = null;
     this._editorClosedHandler = null;
     // dispose() cancels any pending debounced WS write and frees the
@@ -764,6 +807,8 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
       onChange: (change) => this._onStopChange(change),
     });
     this._updateRecenterTitle();
+    const focus = this._previewPresetFocus();
+    if (focus !== null) this._viewPresets.edit(focus);
     this._setupNavListeners();
     this._setupPopupPanRestore();
     this._setupDoubleTapAction();
@@ -1464,6 +1509,59 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
     this._updateRecenterTitle();
   }
 
+  /**
+   * HA's edit dialog caps every card preview at 500 px
+   * (`.content hui-card { max-width: 500px }`), even after a double-tap
+   * widens the dialog; a card with grid_options is previewed inside a
+   * stand-in one-column `hui-section`, capped the same way. In a sections
+   * view the preview takes the width the card gets on the dashboard,
+   * measured from its real section's grid, so a section spanning two
+   * columns shows it at that width; in any other view it fills the pane.
+   * Reads the dialog's private `_params`: if HA renames it, or the section
+   * can't be found, the preview keeps HA's own width.
+   */
+  private _fitEditorPreview(): void {
+    const dialog = closestAncestor(this, 'hui-dialog-edit-card') as
+      (Element & { _params?: { sectionConfig?: object } }) | null;
+    const container = closestAncestor(this, 'hui-card') as HTMLElement | null;
+    if (!dialog?._params || !container) return;
+    const sectionConfig = dialog._params.sectionConfig;
+    const grid = sectionConfig ? findSectionGrid(sectionConfig) : null;
+    if (sectionConfig && !grid) return;
+    container.style.maxWidth = 'none';
+    const standIn = closestAncestor(this, 'hui-section') as HTMLElement | null;
+    if (standIn) standIn.style.maxWidth = 'none';
+    if (!grid) {
+      this.style.width = '';
+      return;
+    }
+    const cs = getComputedStyle(grid);
+    const count = cs.gridTemplateColumns.split(' ').length;
+    const columns = cardColumns(this._config?.grid_options as { columns?: number | 'full' } | undefined,
+      count, this.getGridOptions().columns as number);
+    const width = sectionCardWidth(grid.getBoundingClientRect().width, count, parseFloat(cs.columnGap) || 0, columns);
+    this.style.width = `${width}px`;
+    this.style.maxWidth = '100%';
+  }
+
+  private _onPresetFocus = (): void => {
+    if (this._isEditorPreview()) this._viewPresets?.edit(editorPresetFocus());
+  };
+
+  // A hand-made pan or zoom while the editor has a preset open sets that
+  // preset, as it sets the card's centre otherwise.
+  private _pushMapToPreset(index: number): void {
+    if (!this._map) return;
+    const c = this._map.getCenter();
+    const detail: PresetMapMove = {
+      index,
+      latitude: Math.round(c.lat * 10000) / 10000,
+      longitude: Math.round(c.lng * 10000) / 10000,
+      zoom: this._map.getZoom(),
+    };
+    window.dispatchEvent(new CustomEvent(PRESET_MAP_EVENT, { detail }));
+  }
+
   private _updateRecenterTitle(): void {
     if (this._viewPresets) this._toolbar?.setRecenterTitle(this._viewPresets.nextLabel());
   }
@@ -1527,7 +1625,10 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
       // editable); _editorOpen is set by the editor element's lifecycle.
       // Not while a stop is held: panning around a preset isn't choosing
       // the card's centre.
-      if (this._userMoveInProgress && this.editMode && this._editorOpen && !this._viewPresets?.isHolding) {
+      const presetFocus = this._userMoveInProgress ? this._previewPresetFocus() : null;
+      if (presetFocus !== null) {
+        this._pushMapToPreset(presetFocus);
+      } else if (this._userMoveInProgress && this.editMode && this._editorOpen && !this._viewPresets?.isHolding) {
         this._pushCenterToEditor();
       }
       this._userMoveInProgress = false;

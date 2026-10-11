@@ -96,6 +96,7 @@
       "location": "Posizione",
       "markers": "Marcatori",
       "presets": "Viste",
+      "preset_views": "Viste predefinite",
       "display": "Visualizzazione",
       "interaction": "Interazione",
       "animation": "Animazione",
@@ -200,6 +201,8 @@
     },
     "presets": {
       "help": "Il pulsante di ricentratura passa tra il marcatore seguito, Predefinito e queste viste. Tocca il nome accanto al pulsante per tornare.",
+      "help_map": "La vista aperta appare sulla mappa: spostala e ingrandiscila lì per impostarla.",
+      "drag": "Trascina per riordinare",
       "add": "+ Aggiungi vista",
       "name": "Nome (facoltativo)",
       "entity": "Segui entità (facoltativo)",

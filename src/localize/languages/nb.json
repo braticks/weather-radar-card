@@ -96,6 +96,7 @@
       "location": "Plassering",
       "markers": "Markører",
       "presets": "Visninger",
+      "preset_views": "Forhåndsvalgte visninger",
       "display": "Visning",
       "interaction": "Interaksjon",
       "animation": "Animasjon",
@@ -200,6 +201,8 @@
     },
     "presets": {
       "help": "Sentrer-knappen veksler mellom fulgt markør, Standard og disse visningene. Trykk på navnet ved knappen for å gå tilbake.",
+      "help_map": "Den åpne visningen vises på kartet: flytt og zoom den der for å stille den inn.",
+      "drag": "Dra for å endre rekkefølge",
       "add": "+ Legg til visning",
       "name": "Navn (valgfritt)",
       "entity": "Følg entitet (valgfritt)",
