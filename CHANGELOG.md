@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.0-alpha1] - 2026-10-13
+
+> **Alpha pre-release of 4.0.** The first release with Home Assistant's vector map under the radar, view presets and layer toggles. It needs a second file next to the card, and it changes what the re-centre button does when a marker is tracked. 3.13.0 is the current stable release and is included. The entries below are what changed since 3.13.0.
+
 ### Added
 
 - **`map_style: MapTilesVector` (experimental)** — Home Assistant 2026.10's vector map, the one HA's own map cards show, under the radar, with its place names drawn over the radar and every weather and hazard overlay, wind arrows, fire icons and lightning included, so they stay readable through rain (warnings and fires stay clickable; your own markers stay on top) (`vector_labels: below` to turn that off): sharp at every zoom, light or dark with HA's theme, in any of the six styles HA's map cards offer (`vector_style`: Default, Colorful, Natural, Muted, Gray, Toner) or the card's own Classic, the colours of the classic OpenStreetMap map that `MapTiles` draws, with a dark version tuned by hand rather than inverted. It loads MapLibre from a separate file (about 320 KB gzipped) only when chosen, uses two WebGL contexts per card (one with `vector_labels: below`), and falls back to `MapTiles` without WebGL2, when that file or HA's style won't load, when the browser takes the map's WebGL context back, or in `low_power_mode`. Manual installs need the new file next to the card; HACS installs get it with the release.
