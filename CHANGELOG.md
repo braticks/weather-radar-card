@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [3.13.0] - 2026-10-13
+
+> **Stable release.** DWD wind shows the model step nearest to now, cached forecast tiles outlast a long refresh interval, zooming out stops multiplying tile requests, and thirteen fixes from a whole-project review. No breaking changes. The entries below are what changed since 3.12.0.
+
 ### Fixed
 
 - **Alert popups stay open across the 60-second refresh** — the alerts layer now redraws only when the alert set or its geometry changed, as the wildfire layer already did.
