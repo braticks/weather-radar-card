@@ -19,7 +19,16 @@ Full-screen capture with every feature enabled — radar with motion compensatio
 
 [![Watch the demo on YouTube](https://img.youtube.com/vi/xfbZRElOi0o/maxresdefault.jpg)](https://youtu.be/xfbZRElOi0o)
 
-## What's new in 3.12 (current stable)
+## What's new in 3.13 (current stable)
+
+DWD wind shows the model step nearest to now, cached forecast tiles outlast a long refresh interval, zooming out stops multiplying tile requests, and thirteen fixes from a whole-project review.
+
+- **Wind shows the model step nearest to now** — AICON, the default outside the US, could show a slice almost 3 hours old; the overlays now pick the nearest step and refresh every half hour. ([3.13.0-beta1](https://github.com/jpettitt/weather-radar-card/releases/tag/v3.13.0-beta1))
+- **Cached forecast tiles outlast a long refresh interval** — the reuse window follows `forecast_refresh_minutes` instead of a fixed 30 minutes, so a dashboard switch no longer discards tiles the card was just showing. Suggested by [@m42cel](https://github.com/m42cel). ([3.13.0-beta1](https://github.com/jpettitt/weather-radar-card/releases/tag/v3.13.0-beta1))
+- **Zooming out no longer multiplies tile requests** — tiles follow the map's zoom instead of staying pinned to the highest level visited. ([3.13.0-beta1](https://github.com/jpettitt/weather-radar-card/releases/tag/v3.13.0-beta1))
+- **Thirteen fixes from a whole-project review** — loops that froze after a tab switch, blank cards that never retried, tile retries outliving their tile, alert popups closing on every refresh, and more. ([3.13.0-beta1](https://github.com/jpettitt/weather-radar-card/releases/tag/v3.13.0-beta1))
+
+## What's new in 3.12
 
 US wind now shows the current hour in the right place, NOAA radar reaches Alaska, Hawaii, Puerto Rico and Guam, and radar loops reload from the browser, forecast included.
 
@@ -29,21 +38,11 @@ US wind now shows the current hour in the right place, NOAA radar reaches Alaska
 - **US wind fixed** — it showed the forecast for about 15 hours ahead, a little too far north, and about 1.9× too strong. ([3.12.0-beta2](https://github.com/jpettitt/weather-radar-card/releases/tag/v3.12.0-beta2), [3.12.0](https://github.com/jpettitt/weather-radar-card/releases/tag/v3.12.0))
 - **Wildfire popups** with location, personnel and cause, InciWeb links for many more fires, and a much lighter data feed. ([3.12.0-beta3](https://github.com/jpettitt/weather-radar-card/releases/tag/v3.12.0-beta3))
 
-## What's new in 3.11
-
-Home Assistant 2026.10 added its own map tiles, and the card can now use them. Radar loops also load from the browser instead of the network, and a new low power mode suits old wall tablets.
-
-- **`MapTiles` map style** — OpenStreetMap tiles through Home Assistant's own `map_tiles` integration: localized labels, no CARTO watermark, no API key. Needs Home Assistant 2026.10+. ([3.11.0-beta1](https://github.com/jpettitt/weather-radar-card/releases/tag/v3.11.0-beta1))
-- **`map_style: Custom`** — any `{z}/{x}/{y}` raster tile URL, with optional attribution and a dark or inverted theme. Contributed by [@jvandenbroek](https://github.com/jvandenbroek). ([3.11.0-beta1](https://github.com/jpettitt/weather-radar-card/releases/tag/v3.11.0-beta1))
-- **Radar tiles are reused instead of re-downloaded** — switching dashboards or reloading no longer refetches the whole loop; matters most for DWD and NOAA. ([3.11.0-beta2](https://github.com/jpettitt/weather-radar-card/releases/tag/v3.11.0-beta2), [beta3](https://github.com/jpettitt/weather-radar-card/releases/tag/v3.11.0-beta3))
-- **`low_power_mode`** — for old or slow wall tablets: no fades or motion compensation, and DWD frames shown as DWD draws them, which loads a DWD loop several times faster. ([3.11.0-beta4](https://github.com/jpettitt/weather-radar-card/releases/tag/v3.11.0-beta4))
-- **`forecast_refresh_minutes`** — DWD forecast frames follow newer nowcast runs instead of keeping the run they loaded with. ([3.11.0-beta2](https://github.com/jpettitt/weather-radar-card/releases/tag/v3.11.0-beta2))
-
 For the full release history see [CHANGELOG](https://github.com/jpettitt/weather-radar-card/blob/main/CHANGELOG.md).
 
 ## Roadmap
 
-Active threads, no specific version commitment — with 3.12 shipped, these target a later release. See [docs/todo.md](https://github.com/jpettitt/weather-radar-card/blob/main/docs/todo.md) for the full backlog with status per item.
+Active threads, no specific version commitment — with 3.13 shipped, these target a later release. See [docs/todo.md](https://github.com/jpettitt/weather-radar-card/blob/main/docs/todo.md) for the full backlog with status per item.
 
 - **Real-time per-user layer visibility control panel** — UI for toggling individual overlays in real time. Persistence framework already shipped (3.6.5); first consumer shipped (playback speed in 3.7.0-alpha1); the on-map panel itself is the remaining piece. Full design in [docs/layer-control-design.md](https://github.com/jpettitt/weather-radar-card/blob/main/docs/layer-control-design.md).
 - **Additional wind sources** — Open-Meteo for global coverage, ICON pressure levels for upper-air wind, regional finer-than-ICON-D2 sources (AROME, MEPS, HRRR). Tiers and trade-offs documented in [docs/todo.md](https://github.com/jpettitt/weather-radar-card/blob/main/docs/todo.md).

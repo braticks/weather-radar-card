@@ -346,6 +346,9 @@ preserving pinch-to-zoom, so mobile users can scroll past the card.
 - DWD forecast tiles survive a reload; relative times, forecast and stale-data cues ([#279](https://github.com/jpettitt/weather-radar-card/issues/279)) ✅ — 3.12.0
 - NOAA radar in Alaska, Hawaii, Puerto Rico and Guam ✅ — 3.12.0
 - Richer wildfire popups, InciWeb links for most large fires, lighter wildfire feed ✅ — 3.12.0
+- DWD wind shows the model step nearest to now, refreshed every half hour ✅ — 3.13.0
+- Forecast-tile reuse window tied to `forecast_refresh_minutes` ([#279](https://github.com/jpettitt/weather-radar-card/issues/279)) ✅ — 3.13.0
+- Native-zoom pin dropped: zooming out no longer multiplies tile requests; thirteen fixes from the 2026-10-10 whole-project review ✅ — 3.13.0
 
 ## Canvas rendering for lightning + hazard layers
 

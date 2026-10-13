@@ -24,14 +24,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Breaking: with a tracked marker, re-centre switches between it and Default** — it used to jump to the configured centre until the tracked entity next moved. Now Default holds, with tracking paused, until another press, or until `preset_timeout` idle minutes (default 5) bring the map back to the tracked marker. Cards without a tracked marker re-centre as before.
 - **The re-centre button moved to the bottom of the toolbar**, below the playback controls, so the preset name beside it sits in the map's corner.
 - **Dark tile maps are greyer** — the inverted map (`Auto` in dark mode, `MapTiles` with `theme_mode: dark`, `custom_tile_theme: invert`, and the vector map's raster fallback in dark mode) keeps less of its colour (saturation 0.15, was HA's 0.3), so green forests and pink roads no longer compete with the radar.
-- **Zooming out no longer keeps the zoomed-in tile grid** — the loop pinned its tile zoom to the highest level visited, so a four-level zoom-out drew 24 tiles per frame instead of 3 and a default loop could trip RainViewer's request limit. Tiles now follow the map's zoom.
-- **Wind shows the model step nearest to now** — the DWD wind overlays rounded the time down to the model's step, so ICON showed a slice up to an hour old and AICON (3-hourly, the default outside the US) one up to almost 3 hours old. They now pick the nearest step and refresh every half hour, so what's shown is within half a step of now.
-- **Cached forecast tiles are kept as long as the refresh interval** — after a reload or a dashboard switch, stored DWD forecast tiles were reused only if their run was at most 30 minutes old, so with a long `forecast_refresh_minutes` a switch away and back discarded tiles the card was showing a moment before. The window is now the refresh interval plus 10 minutes, never less than 30. Suggested by [@m42cel](https://github.com/m42cel) ([#279](https://github.com/jpettitt/weather-radar-card/issues/279)).
-- **Wildfire overlay does less per Home Assistant update** — each fire's extent is computed once per fetch instead of on every state change (2.3 ms a tick with 90 fires on a Mac, more on a tablet).
 
 ### Fixed
 
 - **Editor dropdowns show their default** — *Zoom level* showed nothing instead of *Default (7)* when unset.
+
+## [3.13.0] - 2026-10-13
+
+> **Stable release.** DWD wind shows the model step nearest to now, cached forecast tiles outlast a long refresh interval, zooming out stops multiplying tile requests, and thirteen fixes from a whole-project review. No breaking changes. The entries below are what changed since 3.12.0.
+
+### Fixed
+
 - **Alert popups stay open across the 60-second refresh** — the alerts layer now redraws only when the alert set or its geometry changed, as the wildfire layer already did.
 - **`playback_speed` applies from the first frame** — it was set before the player existed, so without the viewer layer control the YAML value never took effect.
 - **An invalid `dwd_time_override` no longer leaves the map without radar** when a wind overlay is on; the card falls back to the current time, as the loop does.
@@ -45,6 +48,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **A card that loaded no frames retries on its own** — a dashboard that started before its Wi-Fi was up, or during a source outage, showed an empty map until a pan or a reload. It now retries after 30 s, backing off to 5 minutes.
 - **A failed past frame no longer takes the forecast with it** — the loop stops at the archive boundary as before, but DWD's forecast frames still load.
 - **A refresh interrupted by a teardown** no longer arms one last update timer on the discarded player.
+
+### Changed
+
+- **Zooming out no longer keeps the zoomed-in tile grid** — the loop pinned its tile zoom to the highest level visited, so a four-level zoom-out drew 24 tiles per frame instead of 3 and a default loop could trip RainViewer's request limit. Tiles now follow the map's zoom.
+- **Wind shows the model step nearest to now** — the DWD wind overlays rounded the time down to the model's step, so ICON showed a slice up to an hour old and AICON (3-hourly, the default outside the US) one up to almost 3 hours old. They now pick the nearest step and refresh every half hour, so what's shown is within half a step of now.
+- **Cached forecast tiles are kept as long as the refresh interval** — after a reload or a dashboard switch, stored DWD forecast tiles were reused only if their run was at most 30 minutes old, so with a long `forecast_refresh_minutes` a switch away and back discarded tiles the card was showing a moment before. The window is now the refresh interval plus 10 minutes, never less than 30. Suggested by [@m42cel](https://github.com/m42cel) ([#279](https://github.com/jpettitt/weather-radar-card/issues/279)).
+- **Wildfire overlay does less per Home Assistant update** — each fire's extent is computed once per fetch instead of on every state change (2.3 ms a tick with 90 fires on a Mac, more on a tablet).
 
 ## [3.12.0] - 2026-10-09
 
