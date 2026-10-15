@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Blank frames after a preset switch.** After a view change the card requested tiles for every frame at once. Some quick switches used up RainViewer's request budget, and the tiles of the last preset waited up to a minute while the progress bar showed them as loaded. Now at most three frames fetch at a time, in playback order from the shown frame, and the next frame starts when one completes. The progress bar shows a frame as loading while its tiles are outstanding.
+- **Half the tile requests of a zoom-out wasted.** A jump of two or more zoom levels (a preset, re-centre after a zoom-in) first requested a full set of tiles at the old zoom around the new centre, then discarded them 250 ms later. A Leaflet 1.9.4 quirk; the card now skips those tiles.
+
 ## [4.0.0-alpha1] - 2026-10-13
 
 > **Alpha pre-release of 4.0.** The first release with Home Assistant's vector map under the radar, view presets and layer toggles. It needs a second file next to the card, and it changes what the re-centre button does when a marker is tracked. 3.13.0 is the current stable release and is included. The entries below are what changed since 3.13.0.

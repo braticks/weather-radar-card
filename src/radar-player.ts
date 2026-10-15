@@ -61,6 +61,36 @@ export function buildLoadOrder(frameCount: number, nowIndex: number): number[] {
   return order;
 }
 
+// After a view change Leaflet asks every attached frame layer for tiles at
+// once. The player lets this many frames fetch at a time, in playback order
+// from the shown frame, and releases the next as each completes: the shown
+// frame fills first, and a 13-frame loop can't spend a source's per-minute
+// budget on one preset switch (2026-10-14: five quick switches hit
+// RainViewer's 250/min and left 49 tiles waiting a minute while the bar
+// read "loaded").
+export const FRAME_FETCH_WINDOW = 3;
+
+/** Frame indices in playback order from the shown slot, then frames not loaded yet. */
+export function fetchWindowOrder(loadedSlots: number[], currentSlot: number, frameCount: number): number[] {
+  const n = loadedSlots.length;
+  const start = n ? ((currentSlot % n) + n) % n : 0;
+  const order: number[] = [];
+  for (let k = 0; k < n; k++) order.push(loadedSlots[(start + k) % n]);
+  const seen = new Set(order);
+  for (let fi = 0; fi < frameCount; fi++) if (!seen.has(fi)) order.push(fi);
+  return order;
+}
+
+/** The frames that may fetch now: the first `limit` of `order` with tiles outstanding. */
+export function planFetchWindow(order: number[], pending: (fi: number) => number, limit: number): Set<number> {
+  const released = new Set<number>();
+  for (const fi of order) {
+    if (released.size >= limit) break;
+    if (pending(fi) > 0) released.add(fi);
+  }
+  return released;
+}
+
 /**
  * After the frame at order[failedIdx] fails: the order index to try next, or
  * -1 to stop. A failed past frame means the older ones are past the archive
@@ -484,6 +514,8 @@ export class RadarPlayer {
   private _radarPaths: RadarFrame[] = [];
   private _nowFrameIndex = -1;
   private _loadedSlots: number[] = [];
+  // A fetch-window plan is queued for the next microtask (see _queueFetchWindow).
+  private _fetchWindowQueued = false;
   private _frameStatuses: FrameStatus[] = [];
   private _radarReady = false;
   private _frameGeneration = 0;
@@ -1588,6 +1620,8 @@ export class RadarPlayer {
   private _showSlot(slot: number, opts?: { snap?: boolean }): void {
     const n = this._loadedSlots.length;
     if (n === 0 || slot < 0 || slot >= n) return;
+    // The shown frame heads the fetch window.
+    this._queueFetchWindow();
     // Recompute each tick so the marker doesn't drift between 5-min refreshes.
     this._computeNowFrameIndex();
     this._applyNowMarker();
@@ -1777,7 +1811,11 @@ export class RadarPlayer {
   private _paintSegment(fi: number, isCurrent: boolean): void {
     const seg = this._segEls[fi];
     if (!seg) return;
-    seg.style.backgroundColor = this._segColor(this._frameStatuses[fi] ?? 'empty', isCurrent);
+    // A frame whose list entry loaded but whose tiles are still outstanding
+    // (view change, fetch window) reads as loading, as the spinner does.
+    const status = this._frameStatuses[fi] ?? 'empty';
+    const tilesOutstanding = (this._radarImage[fi]?._tilePending ?? 0) > 0;
+    seg.style.backgroundColor = this._segColor(status === 'loaded' && tilesOutstanding ? 'loading' : status, isCurrent);
     const forecast = this._nowFrameIndex >= 0 && fi > this._nowFrameIndex;
     const stripe = this._barIsDark() ? 'rgba(255,255,255,0.35)' : 'rgba(0,0,0,0.22)';
     seg.style.backgroundImage = forecast
@@ -1824,6 +1862,47 @@ export class RadarPlayer {
     const tileLoading = this._radarImage.some(l => (l?._tilePending ?? 0) > 0);
     const isLoading = enabled && (segLoading || tileLoading);
     spinner.style.display = isLoading ? '' : 'none';
+  }
+
+  private _repaintSegmentFor(layer: FetchTileLayer | FetchWmsTileLayer): void {
+    const fi = this._radarImage.indexOf(layer);
+    if (fi >= 0) this._paintSegment(fi, fi === this._lastHighlightFi);
+  }
+
+  // A view change creates tiles for every layer in one synchronous burst,
+  // each layer firing 'loading': plan once after the burst, not per layer.
+  private _queueFetchWindow(): void {
+    if (this._fetchWindowQueued) return;
+    this._fetchWindowQueued = true;
+    queueMicrotask(() => {
+      this._fetchWindowQueued = false;
+      this._applyFetchWindow();
+      // Leaflet fires 'loading' before it creates the tiles, so the paint on
+      // that event saw nothing outstanding yet; paint again after the burst.
+      this._repaintSegments();
+      this._updateLoadingSpinner();
+    });
+  }
+
+  private _repaintSegments(): void {
+    for (let fi = 0; fi < this._segEls.length; fi++) this._paintSegment(fi, fi === this._lastHighlightFi);
+  }
+
+  // Lets FRAME_FETCH_WINDOW frames fetch, in playback order from the shown
+  // slot; every other layer holds its new tiles until a 'load' or a slot
+  // change re-plans. A held layer costs nothing while it has no tiles
+  // outstanding, so complete frames are held too and wait their turn after
+  // the next view change.
+  private _applyFetchWindow(): void {
+    const layers = this._radarImage;
+    if (!layers.length) return;
+    const order = fetchWindowOrder(this._loadedSlots, this._currentSlot, layers.length);
+    const released = planFetchWindow(order, (fi) => layers[fi]?._tilePending ?? 0, FRAME_FETCH_WINDOW);
+    layers.forEach((layer, fi) => {
+      if (!layer) return;
+      if (released.has(fi)) layer.releaseTiles?.();
+      else layer.holdTiles?.();
+    });
   }
 
   /** Pick the frame whose timestamp is closest to wall-clock now. */
@@ -2490,7 +2569,13 @@ export class RadarPlayer {
     // snapshot whose vector then drags the motion for that frame off
     // course — visible as a jittery patch midway through the loop.
     const wireSpinner = (l: FetchTileLayer | FetchWmsTileLayer): typeof l => {
-      l.on('loading load', () => this._updateLoadingSpinner());
+      // 'tileunload' too: a layer whose outstanding tiles all leave the map
+      // (pan away) is complete without a 'load', and the window must move on.
+      l.on('loading load tileunload', () => {
+        this._updateLoadingSpinner();
+        this._repaintSegmentFor(l);
+        this._queueFetchWindow();
+      });
       l.on('load', () => this._onLayerLoaded(l));
       return l;
     };
