@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.0-alpha2] - 2026-10-15
+
+> **Alpha pre-release of 4.0.** Fixes for preset switching on 4.0.0-alpha1. 3.13.0 is the current stable release and is included. The entries below are what changed since 4.0.0-alpha1.
+
 ### Fixed
 
 - **Blank frames after a preset switch.** After a view change the card requested tiles for every frame at once. Some quick switches used up RainViewer's request budget, and the tiles of the last preset waited up to a minute while the progress bar showed them as loaded. Now at most three frames fetch at a time, in playback order from the shown frame, and the next frame starts when one completes. The progress bar shows a frame as loading while its tiles are outstanding.
