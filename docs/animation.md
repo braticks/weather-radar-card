@@ -406,6 +406,19 @@ from the tile cache while DWD's forecast can take 5–45 s, and
 forecast-first held a cached loop behind the network on every reload
 (#279).
 
+After a pan, zoom or preset change, Leaflet asks every attached frame
+layer for new tiles at once. The player lets `FRAME_FETCH_WINDOW` (3)
+frames fetch at a time, in playback order from the shown frame, and
+releases the next frame when one completes (`_applyFetchWindow`). The
+other layers hold their tiles (`holdTiles`): counted as pending, so the
+spinner and the progress bar show them as loading, but not requested.
+The shown frame fills first, and a quick run through several presets
+cannot spend a source's per-minute request budget in one burst (five
+quick switches on a 13-frame RainViewer loop hit the 250/min cap and
+left the last preset blank for a minute). Measured 2026-10-14 on a
+49-frame DWD loop at zoom 9: the shown frame complete in 2 s instead
+of 7 s, the whole loop in 31 s instead of 26 s.
+
 As each frame settles (`layerSettled`):
 
 1. Its outer container starts at `opacity: 0`.

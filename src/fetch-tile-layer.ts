@@ -171,6 +171,48 @@ export interface TileWithAbort extends HTMLImageElement {
   __wrcRetry?: ReturnType<typeof setTimeout> | null;
   /** Set once Leaflet has unloaded the tile: no later attempt may start. */
   __wrcCancelled?: boolean;
+  /** Starts a tile created while its layer held fetches (releaseLayerTiles). */
+  __wrcDeferred?: (() => void) | null;
+}
+
+type FetchLayer = FetchTileLayer | FetchWmsTileLayer;
+
+// A held layer still gets its tiles from Leaflet, so the grid, pruning and
+// cancellation stay Leaflet's; only the request waits. The player holds the
+// frames outside its fetch window after a view change, so a 13-frame loop
+// doesn't request every frame at once (FRAME_FETCH_WINDOW in radar-player).
+export function holdLayerTiles(layer: FetchLayer): void {
+  layer._holdTiles = true;
+}
+
+export function releaseLayerTiles(layer: FetchLayer): void {
+  layer._holdTiles = false;
+  const deferred = layer._deferredTiles;
+  if (!deferred?.size) return;
+  const tiles = [...deferred];
+  deferred.clear();
+  for (const tile of tiles) {
+    const run = tile.__wrcDeferred;
+    tile.__wrcDeferred = null;
+    run?.();
+  }
+}
+
+// Leaflet 1.9.4 fires 'zoomanim' before Map._move records the new zoom. For
+// a jump of more than one level GridLayer._animateZoom → _setView → _update
+// then reads the stale zoom, trips its `> 1` guard and calls
+// _setView(newCenter, OLD zoom): a full tile set at the old zoom around the
+// new centre, discarded 250 ms later when the real 'zoom' event runs
+// _setView again. Measured 2026-10-14: a preset jump from zoom 9 to 5 cost
+// 52 wasted RainViewer requests, all counted against the budget. The
+// transform is all the animation needs; the 'zoom' event creates the tiles.
+export function animateZoomSkippingStaleTiles(layer: FetchLayer, e: { center: L.LatLng; zoom: number }): void {
+  const map = (layer as any)._map as L.Map | undefined;
+  if (map && Math.abs(e.zoom - map.getZoom()) > 1) {
+    (layer as any)._setZoomTransforms(e.center, e.zoom);
+    return;
+  }
+  (L.GridLayer.prototype as any)._animateZoom.call(layer, e);
 }
 
 // One network attempt, resolving to the raw tile bytes. Rejections carry
@@ -395,7 +437,14 @@ export function createFetchTile(
     });
   };
 
-  start();
+  if (layer._holdTiles) {
+    // Counted in _tilePending already: the spinner and the progress bar
+    // show the frame as loading until the player releases it.
+    tile.__wrcDeferred = start;
+    (layer._deferredTiles ??= new Set()).add(tile);
+  } else {
+    start();
+  }
   return tile;
 }
 
@@ -412,6 +461,12 @@ function cancelTile(layer: FetchTileLayer | FetchWmsTileLayer, tile: TileWithAbo
   tile.__wrcCancelled = true;
   tile.__wrcAbort?.abort();
   tile.__wrcAbort = null;
+  if (tile.__wrcDeferred) {
+    // Never started: nothing to abort, but it was counted as pending.
+    tile.__wrcDeferred = null;
+    layer._deferredTiles?.delete(tile);
+    layer._tilePending--;
+  }
   if (tile.__wrcRetry) {
     clearTimeout(tile.__wrcRetry);
     tile.__wrcRetry = null;
@@ -432,7 +487,7 @@ export function wireAbortLifecycle(layer: FetchTileLayer | FetchWmsTileLayer): v
     if (!tiles) return;
     for (const key in tiles) {
       const tile = tiles[key]?.el as TileWithAbort | undefined;
-      if (tile && (tile.__wrcAbort || tile.__wrcRetry)) cancelTile(layer, tile);
+      if (tile && (tile.__wrcAbort || tile.__wrcRetry || tile.__wrcDeferred)) cancelTile(layer, tile);
     }
   });
 }
@@ -465,6 +520,8 @@ export class FetchTileLayer extends L.TileLayer {
   _tilePending = 0;
   _tileFailed = 0;
   _tileLoaded = 0;
+  _holdTiles = false;
+  _deferredTiles?: Set<TileWithAbort>;
 
   initialize(url: string, options: FetchTileOptions): void {
     this._tilePending = 0;
@@ -476,6 +533,15 @@ export class FetchTileLayer extends L.TileLayer {
 
   createTile(coords: L.Coords, done: L.DoneCallback): HTMLElement {
     return createFetchTile.call(this, coords as Coords, done);
+  }
+
+  /** New tiles wait instead of fetching, until releaseTiles. */
+  holdTiles(): void { holdLayerTiles(this); }
+
+  releaseTiles(): void { releaseLayerTiles(this); }
+
+  _animateZoom(e: { center: L.LatLng; zoom: number }): void {
+    animateZoomSkippingStaleTiles(this, e);
   }
 
   _updateOpacity(): void {
@@ -491,6 +557,8 @@ export class FetchWmsTileLayer extends L.TileLayer.WMS {
   _tilePending = 0;
   _tileFailed = 0;
   _tileLoaded = 0;
+  _holdTiles = false;
+  _deferredTiles?: Set<TileWithAbort>;
 
   initialize(url: string, options: L.WMSOptions & FetchTileOptions): void {
     this._tilePending = 0;
@@ -512,6 +580,14 @@ export class FetchWmsTileLayer extends L.TileLayer.WMS {
 
   createTile(coords: L.Coords, done: L.DoneCallback): HTMLElement {
     return createFetchTile.call(this as any, coords as Coords, done);
+  }
+
+  holdTiles(): void { holdLayerTiles(this); }
+
+  releaseTiles(): void { releaseLayerTiles(this); }
+
+  _animateZoom(e: { center: L.LatLng; zoom: number }): void {
+    animateZoomSkippingStaleTiles(this, e);
   }
 
   _updateOpacity(): void {
