@@ -5,6 +5,8 @@
   "ui": {
     "rate_limited": "Osiągnięto limit żądań — oczekiwanie na zresetowanie limitu",
     "server_error": "Błąd serwera radaru — ponawianie",
+    "alerts_fetch_failed": "Ostrzeżenia NWS: pobieranie nie powiodło się — ponawianie",
+    "alerts_zones_failed": "Ostrzeżenia NWS: nie wczytano {n} obrysów obszarów — ponawianie",
     "region_warning": {
       "wildfires_us_only": "Dane o pożarach są tylko dla USA. Twoja lokalizacja Home Assistant jest poza USA — nie będą wyświetlane żadne pożary.",
       "noaa_us_only": "Radar NOAA jest tylko dla USA. Twoja lokalizacja Home Assistant jest poza USA — radar może się nie załadować.",

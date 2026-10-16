@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Mobile browser crash on a preset switch with NWS alerts on.** With every alert category on, the alerts layer held 3 million polygon vertices, mostly marine advisories, and re-projected all of them on each zoom: a 150 to 200 MB memory spike per switch. Zone outlines are now simplified to about 220 m before they are cached and drawn (six times fewer vertices, invisible below zoom 11), and only the alerts that touch the view are built as map polygons. A view change while an alert popup is open waits for the popup to close.
+- **Alert fetch failures are no longer silent.** When the NWS alerts list or some zone shapes fail to load, a banner says so while the card retries. Before, the only sign was a console message and a retry backoff of up to 30 minutes.
+- **Alerts on some NWS zones never got a shape.** NWS publishes some zones (Michigan's, for example) as a GeometryCollection, which the card skipped and requested again every minute. They are drawn now.
+- **NWS alerts never loaded after a blocked zone burst.** On a cold cache with every category on, the card requested 2,100 zone shapes at once, NWS blocked the address, and every 60 s refresh re-sent the same burst. Zone shapes are now fetched 24 at a time, alerts in view first. After a block the card waits 5 s, doubling to 5 min, and resumes at half speed until shapes arrive again.
+
 ## [4.0.0-alpha2] - 2026-10-15
 
 > **Alpha pre-release of 4.0.** Fixes for preset switching on 4.0.0-alpha1. 3.13.0 is the current stable release and is included. The entries below are what changed since 4.0.0-alpha1.

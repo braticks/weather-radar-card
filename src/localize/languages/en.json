@@ -5,6 +5,8 @@
   "ui": {
     "rate_limited": "Rate limited — waiting for quota to reset",
     "server_error": "Radar server error — retrying",
+    "alerts_fetch_failed": "NWS alerts: fetch failed — retrying",
+    "alerts_zones_failed": "NWS alerts: {n} area shapes did not load — retrying",
     "loading_radar_tiles": "Loading radar tiles",
     "now": "(latest)",
     "now_tooltip": "Latest",

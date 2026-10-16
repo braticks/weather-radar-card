@@ -5,6 +5,8 @@
   "ui": {
     "rate_limited": "Prekročený limit požiadaviek — čaká sa na obnovenie kvóty",
     "server_error": "Chyba radarového servera — skúša sa znova",
+    "alerts_fetch_failed": "Výstrahy NWS: načítanie zlyhalo — skúša sa znova",
+    "alerts_zones_failed": "Výstrahy NWS: {n} obrysov oblastí sa nenačítalo — skúša sa znova",
     "region_warning": {
       "wildfires_us_only": "Údaje o lesných požiaroch sú len pre USA. Vaša poloha Home Assistant je mimo USA – nebudú zobrazené žiadne požiare.",
       "noaa_us_only": "NOAA radar je len pre USA. Vaša poloha Home Assistant je mimo USA – radar sa nemusí načítať.",

@@ -5,6 +5,8 @@
   "ui": {
     "rate_limited": "Förfrågningsgräns nådd — väntar på återställning av kvot",
     "server_error": "Fel på radarservern — försöker igen",
+    "alerts_fetch_failed": "NWS-varningar: hämtning misslyckades — försöker igen",
+    "alerts_zones_failed": "NWS-varningar: {n} områdeskonturer laddades inte — försöker igen",
     "region_warning": {
       "wildfires_us_only": "Skogsbrand-data är endast för USA. Din Home Assistant-plats är utanför USA – inga bränder kommer att visas.",
       "noaa_us_only": "NOAA-radar är endast för USA. Din Home Assistant-plats är utanför USA – radarn kanske inte laddas.",

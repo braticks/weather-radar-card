@@ -127,7 +127,7 @@ import {
   LayerToggleBar, OverlayKey, OverlayVisibility, OVERLAY_KEYS, overlayConfigured,
 } from './layer-toggles';
 import { WildfireLayer } from './wildfire-layer';
-import { NwsAlertsLayer } from './nws-alerts-layer';
+import { NwsAlertsLayer, type AlertsStatus } from './nws-alerts-layer';
 import { LightningLayer } from './lightning-layer';
 import { getRegionWarnings } from './region-warning';
 import { escapeHtml } from './string-utils';
@@ -722,6 +722,7 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
           <div id="server-error-banner" class="status-banner" style="display:none">
             ${localize('ui.server_error')}
           </div>
+          <div id="alerts-error-banner" class="status-banner" style="display:none"></div>
         </div>
         <div id="mapid"></div>
         <div id="div-progress-bar" style="height:${PROGRESS_BAR_TRACK_HEIGHT}px;display:${this._config.show_progress_bar === false ? 'none' : 'block'}">
@@ -879,6 +880,21 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
     }
   }
 
+  // A failed alerts fetch used to be a console.warn and a silent backoff of
+  // up to 30 min: "the alerts don't always load". The banner says so.
+  private _setAlertsBanner(status: AlertsStatus | null): void {
+    const banner = this.shadowRoot?.getElementById('alerts-error-banner');
+    if (!banner) return;
+    if (!status) {
+      banner.style.display = 'none';
+      return;
+    }
+    banner.textContent = status.kind === 'fetch'
+      ? localize('ui.alerts_fetch_failed')
+      : localize('ui.alerts_zones_failed', '{n}', String(status.failures));
+    banner.style.display = 'block';
+  }
+
   private _overlayRunning(key: OverlayKey): boolean {
     switch (key) {
       case 'alerts': return this._alertsLayer !== null;
@@ -892,7 +908,8 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
     if (!this._map) return;
     switch (key) {
       case 'alerts':
-        this._alertsLayer = new NwsAlertsLayer(this._map, () => this._config, this.hass);
+        this._alertsLayer = new NwsAlertsLayer(this._map, () => this._config, this.hass,
+          (status) => this._setAlertsBanner(status));
         this._alertsLayer.start();
         break;
       case 'wind':

@@ -31,7 +31,7 @@ vi.mock('leaflet', () => {
   const DomUtil = { create: vi.fn(() => ({ style: {} })), setPosition: vi.fn() };
   const DomEvent = { disableClickPropagation: vi.fn(), on: vi.fn() };
   // Enough of geoJSON/canvas for the alerts layer's real render path to run.
-  const geoJSON = vi.fn(() => ({ addTo: vi.fn() }));
+  const geoJSON = vi.fn(() => ({ addTo: vi.fn(), on: vi.fn(), getLayers: () => [] }));
   const canvas = vi.fn(() => ({}));
   return {
     Layer, TileLayer, Control, layerGroup, DomUtil, DomEvent, geoJSON, canvas,
@@ -509,7 +509,15 @@ describe('NwsAlertsLayer refresh with an unchanged alert set', () => {
     l._renderDecisions = new Map();
     l._polygonLayer = null;
     l._zoneCache = new Map();
-    l._map = { getCenter: () => ({ lat: 35, lng: -97 }), removeLayer: vi.fn(), getSize: () => ({ x: 800, y: 600 }) };
+    l._zoneBounds = new Map();
+    l._featureBounds = new Map();
+    l._renderAfterPopup = false;
+    l._lastStatusKey = '';
+    const world = { getWest: () => -180, getEast: () => 180, getSouth: () => -90, getNorth: () => 90 };
+    l._map = {
+      getCenter: () => ({ lat: 35, lng: -97 }), removeLayer: vi.fn(), getSize: () => ({ x: 800, y: 600 }),
+      getBounds: () => ({ pad: () => world }),
+    };
     l._getConfig = () => ({ alerts_types: ['Tornado Warning'] });
     l._resolveZones = vi.fn(async () => {});
     return l;

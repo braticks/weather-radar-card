@@ -70,6 +70,88 @@ export function quantizeGeometry(geom: GeoJSON.Geometry, dp = COORD_DP): GeoJSON
   return { ...geom, coordinates: quantizeCoords(g.coordinates, dp) } as GeoJSON.Geometry;
 }
 
+// Outline tolerance for zone shapes, in degrees (~220 m). NWS zones are
+// vertex-dense along coasts: with the marine categories on, 2,116 zones
+// held 2.0 M coordinates and Leaflet re-projected 3 M vertices on every
+// zoom, a 150-200 MB heap spike per preset switch that killed mobile
+// browsers (2026-10-16). At 0.002° the same set is 318 k coordinates. The
+// error is under a pixel below zoom 11 and ~6 px at zoom 12, on advisory
+// areas that are not surveyed boundaries. Stored zones carry whatever
+// tolerance was current when written; a change here reaches them at the TTL.
+export const SIMPLIFY_TOLERANCE_DEG = 0.002;
+
+/** Douglas-Peucker on one ring. The closure point stays. A ring that would
+ * fall below four points is returned as it is: a zone smaller than the
+ * tolerance has few points anyway, and a triangle or less is not a ring. */
+export function simplifyRing(ring: GeoJSON.Position[], tol: number): GeoJSON.Position[] {
+  const n = ring.length;
+  if (tol <= 0 || n < 5) return ring;
+  const sq = tol * tol;
+  const keep = new Uint8Array(n);
+  keep[0] = 1;
+  keep[n - 1] = 1;
+  const stack: [number, number][] = [[0, n - 1]];
+  while (stack.length) {
+    const [s, e] = stack.pop()!;
+    const [x1, y1] = ring[s];
+    const [x2, y2] = ring[e];
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const len2 = dx * dx + dy * dy;
+    let maxD = 0;
+    let idx = -1;
+    for (let i = s + 1; i < e; i++) {
+      const [x, y] = ring[i];
+      let d: number;
+      if (len2 === 0) {
+        d = (x - x1) ** 2 + (y - y1) ** 2;
+      } else {
+        const t = Math.max(0, Math.min(1, ((x - x1) * dx + (y - y1) * dy) / len2));
+        d = (x - x1 - t * dx) ** 2 + (y - y1 - t * dy) ** 2;
+      }
+      if (d > maxD) { maxD = d; idx = i; }
+    }
+    if (maxD > sq && idx > 0) {
+      keep[idx] = 1;
+      stack.push([s, idx], [idx, e]);
+    }
+  }
+  const out: GeoJSON.Position[] = [];
+  for (let i = 0; i < n; i++) if (keep[i]) out.push(ring[i]);
+  return out.length >= 4 ? out : ring;
+}
+
+/** The drawable part of a zone's geometry as one Polygon / MultiPolygon, or
+ * null. NWS publishes some zones as a GeometryCollection (Michigan's
+ * forecast zones, 2026-10-16); the card used to skip those, so their
+ * alerts never got shapes and the zones were requested again every
+ * refresh. Members that are not polygons are dropped. */
+export function normalizeZoneGeometry(geom: GeoJSON.Geometry | null | undefined): GeoJSON.Polygon | GeoJSON.MultiPolygon | null {
+  if (!geom) return null;
+  if (geom.type === 'Polygon' || geom.type === 'MultiPolygon') return geom;
+  if (geom.type !== 'GeometryCollection') return null;
+  const polys: GeoJSON.Position[][][] = [];
+  for (const member of geom.geometries) {
+    const g = normalizeZoneGeometry(member);
+    if (!g) continue;
+    if (g.type === 'Polygon') polys.push(g.coordinates);
+    else for (const p of g.coordinates) polys.push(p);
+  }
+  return polys.length ? { type: 'MultiPolygon', coordinates: polys } : null;
+}
+
+/** Simplify every ring of a Polygon / MultiPolygon; other types pass through. */
+export function simplifyGeometry(geom: GeoJSON.Geometry, tol = SIMPLIFY_TOLERANCE_DEG): GeoJSON.Geometry {
+  if (tol <= 0) return geom;
+  if (geom.type === 'Polygon') {
+    return { type: 'Polygon', coordinates: geom.coordinates.map((r) => simplifyRing(r, tol)) };
+  }
+  if (geom.type === 'MultiPolygon') {
+    return { type: 'MultiPolygon', coordinates: geom.coordinates.map((p) => p.map((r) => simplifyRing(r, tol))) };
+  }
+  return geom;
+}
+
 const hasCompression = typeof CompressionStream !== 'undefined'
   && typeof DecompressionStream !== 'undefined';
 
