@@ -5,6 +5,8 @@
   "ui": {
     "rate_limited": "Anfragelimit erreicht — warte auf Zurücksetzen des Kontingents",
     "server_error": "Radarserver-Fehler — neuer Versuch",
+    "alerts_fetch_failed": "NWS-Warnungen: Abruf fehlgeschlagen — neuer Versuch",
+    "alerts_zones_failed": "NWS-Warnungen: {n} Gebietsumrisse nicht geladen — neuer Versuch",
     "region_warning": {
       "wildfires_us_only": "Waldbranddaten sind nur für die USA verfügbar. Ihr Home-Assistant-Standort liegt außerhalb der USA – es werden keine Brände angezeigt.",
       "noaa_us_only": "NOAA-Radar ist nur für die USA verfügbar. Ihr Home-Assistant-Standort liegt außerhalb der USA – das Radar lädt möglicherweise nicht.",

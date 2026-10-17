@@ -6,9 +6,17 @@ import { colorForEvent, NWS_ALERT_DEFAULT_COLOR } from './nws-alert-colors';
 import {
   ALL_ALERT_CATEGORIES, categoryForEvent, getActiveAlertCategories,
 } from './nws-alert-categories';
-import { centroidLngLat, haversineKm } from './geo-utils';
+import { centroidLngLat, haversineKm, geometryLngLatBounds } from './geo-utils';
 import { sharedCanvasRenderer } from './shared-canvas-renderer';
-import { readZone, writeZone, sweepZones, defaultZoneKV } from './zone-store';
+import { onMapQuiet } from './map-quiet';
+import {
+  readZone, writeZone, sweepZones, defaultZoneKV, simplifyGeometry, normalizeZoneGeometry,
+  simplifyToleranceForZoom, SIMPLIFY_TOLERANCE_DEG,
+} from './zone-store';
+
+// Cache entry for a zone with no drawable shape: contributes nothing to
+// _geometryFromZones and has no bounds, but counts as resolved.
+const NO_SHAPE: GeoJSON.MultiPolygon = { type: 'MultiPolygon', coordinates: [] };
 import { escapeHtml, truncate } from './string-utils';
 import { mapsEqual } from './map-utils';
 
@@ -24,6 +32,21 @@ const NWS_ALERTS_URL = 'https://api.weather.gov/alerts/active?status=actual';
 
 const DEFAULT_REFRESH_VISIBLE_MS = 60 * 1000;
 const DEFAULT_REFRESH_EMPTY_MS = 5 * 60 * 1000;
+
+// Zone shapes go through a pool, ZONE_POOL_SIZE at a time, in-view alerts
+// first. NWS's limiter is a burst limiter per address: unpublished, and it
+// "clears typically within 5 seconds"; a block is a 403 without CORS
+// headers, so the browser sees a status-less TypeError. With the marine
+// categories on, a cold cache needed 2,100 zones; fired at once that was
+// blocked on the owner's address (2026-10-16), and the 60 s refresh
+// re-fired the same burst, so the alerts never got shapes. After a block
+// the batch stops, waits ZONE_BACKOFF_MIN_MS doubling to
+// ZONE_BACKOFF_MAX_MS, and resumes at half the pool; shapes arriving again
+// restore both.
+const ZONE_POOL_SIZE = 24;
+const ZONE_POOL_MIN = 4;
+const ZONE_BACKOFF_MIN_MS = 5_000;
+const ZONE_BACKOFF_MAX_MS = 5 * 60_000;
 const DEFAULT_FILL_OPACITY = 0.25;
 const DEFAULT_MIN_SEVERITY: Severity = 'Minor';
 
@@ -58,6 +81,31 @@ interface AlertProps {
   uri?: string | null;
   affectedZones?: string[];
   senderName?: string;
+}
+
+type LngLatBounds = NonNullable<ReturnType<typeof geometryLngLatBounds>>;
+
+/** What the host shows in its banner: the alerts list could not be fetched, or some zone shapes did not load. */
+export interface AlertsStatus {
+  kind: 'fetch' | 'zones';
+  failures: number;
+  total?: number;
+}
+
+// Leaflet's bounds run past ±180 on a map centred near the antimeridian, and
+// geometryLngLatBounds answers in a 0..360 window for a shape that crosses
+// it (the far Aleutians), so the box is tried in all three longitude
+// windows. A false "visible" only costs a polygon; a false "hidden" would
+// drop a warning from the map.
+function boundsIntersect(
+  b: LngLatBounds,
+  view: { getWest(): number; getEast(): number; getSouth(): number; getNorth(): number },
+): boolean {
+  if (b.maxLat < view.getSouth() || b.minLat > view.getNorth()) return false;
+  for (const shift of [0, -360, 360]) {
+    if (b.maxLng + shift >= view.getWest() && b.minLng + shift <= view.getEast()) return true;
+  }
+  return false;
 }
 
 export class NwsAlertsLayer {
@@ -101,15 +149,42 @@ export class NwsAlertsLayer {
   // the wire bandwidth too.
   private _abortCtrl: AbortController | null = null;
   private _zoneAbortCtrl: AbortController | null = null;
+  // Zone pool state: current concurrency, the backoff in force after a
+  // block (0 = none) and when it ends, its timer, and whether a batch is
+  // draining (a _resolveZones call meanwhile asks for a re-plan after it).
+  private _zonePool = ZONE_POOL_SIZE;
+  private _zoneBackoffMs = 0;
+  private _zoneBackoffUntil = 0;
+  private _zoneRetryTimer: ReturnType<typeof setTimeout> | null = null;
+  private _zoneBatchRunning = false;
+  private _zoneReplan = false;
+  // Lng/lat bounds per cached zone and per inline-geometry feature, so the
+  // view test in _renderInner never walks a vertex.
+  private _zoneBounds: Map<string, LngLatBounds> = new Map();
+  private _featureBounds: Map<string, LngLatBounds | null> = new Map();
+  // Coarser copies of cached zones per integer zoom, built on first use
+  // (simplifyToleranceForZoom); zoom 9 and up draw the cached outline.
+  private _zoneLod: Map<string, Map<number, GeoJSON.Geometry>> = new Map();
+  // A view change while a popup is open defers its re-render to popupclose:
+  // the rebuild would close the popup the user is reading.
+  private _renderAfterPopup = false;
+  private _onStatus: ((status: AlertsStatus | null) => void) | undefined;
+  private _lastStatusKey = '';
+  private _disposeQuiet: (() => void) | null = null;
+  // True from movestart/zoomstart until the map has been still for a second.
+  private _mapBusy = false;
+  private _quietWaiters: Array<() => void> = [];
 
   constructor(
     map: L.Map,
     getConfig: () => WeatherRadarCardConfig,
     hass?: HomeAssistant,
+    onStatus?: (status: AlertsStatus | null) => void,
   ) {
     this._map = map;
     this._getConfig = getConfig;
     this._hass = hass;
+    this._onStatus = onStatus;
   }
 
   start(): void {
@@ -117,6 +192,16 @@ export class NwsAlertsLayer {
     // localStorage caches once per layer start. Fire-and-forget — the
     // sweep never blocks rendering and its failures are swallowed.
     void sweepZones(defaultZoneKV(), Date.now());
+    // While the map moves the layer is idle: no render from any source (a
+    // hass tick, a refresh, zones arriving) and no zone request starts.
+    // Everything resumes once the map has been still for a second (see
+    // map-quiet.ts). A pinch on an iPhone still crashed Safari with this
+    // layer on and nothing in view, often before that second was up
+    // (2026-10-16): what ran during the gesture was the zone pool's
+    // decode, simplify and IndexedDB writes, and renders on hass ticks.
+    this._map.on('movestart zoomstart', this._onMapBusy);
+    this._disposeQuiet = onMapQuiet(this._map, this._onMapQuiet);
+    this._map.on('resize', this._onViewChange);
     void this._fetch();
   }
 
@@ -135,6 +220,22 @@ export class NwsAlertsLayer {
     this._renderDecisions.clear();
     this._zoneCache.clear();
     this._zoneFetches.clear();
+    this._zoneBounds.clear();
+    this._featureBounds.clear();
+    this._zoneLod.clear();
+    this._renderAfterPopup = false;
+    if (this._zoneRetryTimer) { clearTimeout(this._zoneRetryTimer); this._zoneRetryTimer = null; }
+    this._zoneBackoffMs = 0;
+    this._zoneBackoffUntil = 0;
+    this._zonePool = ZONE_POOL_SIZE;
+    this._zoneReplan = false;
+    this._disposeQuiet?.();
+    this._disposeQuiet = null;
+    this._map.off('movestart zoomstart', this._onMapBusy);
+    this._map.off('resize', this._onViewChange);
+    this._mapBusy = false;
+    this._releaseQuietWaiters();
+    this._setStatus(null);
   }
 
   // Stop scheduled fetches while the host card is hidden (off-screen or
@@ -148,6 +249,8 @@ export class NwsAlertsLayer {
     if (this._pausedAt != null) return;
     this._pausedAt = Date.now();
     if (this._timer) { clearTimeout(this._timer); this._timer = null; }
+    // The backoff itself stays; the next _resolveZones re-arms the timer.
+    if (this._zoneRetryTimer) { clearTimeout(this._zoneRetryTimer); this._zoneRetryTimer = null; }
   }
 
   // Resume after a pause. Alerts have a much shorter staleness threshold
@@ -211,12 +314,15 @@ export class NwsAlertsLayer {
       // 30-minute cap. Reset on success.
       console.warn('NWS alerts: fetch failed', err);
       this._failureCount++;
+      this._setStatus({ kind: 'fetch', failures: this._failureCount });
       this._scheduleRetry();
       return;
     }
     if (myGen !== this._gen) return;   // stale
     if (this._abortCtrl === ctrl) this._abortCtrl = null;
     this._failureCount = 0;
+    if (this._lastStatusKey.startsWith('fetch')) this._setStatus(null);
+    this._featureBounds = new Map();
 
     // Filter, then sort lexicographically by (severity, urgency,
     // certainty) so the most actionable alerts paint last and end up
@@ -247,18 +353,11 @@ export class NwsAlertsLayer {
   // not cap this at ~6; a cold cache can mean hundreds). Re-renders when
   // the batch settles, and logs one error summarising any failures.
   private async _resolveZones(): Promise<void> {
+    if (this._zoneBatchRunning) { this._zoneReplan = true; return; }
+    if (Date.now() < this._zoneBackoffUntil) { this._armZoneRetry(); return; }
     const myGen = this._gen;
-    const needed = new Set<string>();
-    for (const f of this._features) {
-      if (f.geometry) continue;   // already has its own geometry; no zones needed
-      const zones = (f.properties as AlertProps | null)?.affectedZones ?? [];
-      for (const url of zones) {
-        if (!this._zoneCache.has(url) && !this._zoneFetches.has(url)) {
-          needed.add(url);
-        }
-      }
-    }
-    if (needed.size === 0) return;
+    const queue = this._zoneQueue();
+    if (queue.length === 0) return;
 
     // Shared controller for this batch — a fresh _fetch() that
     // supersedes the current alerts list aborts the entire in-flight
@@ -266,33 +365,93 @@ export class NwsAlertsLayer {
     // which zones are still relevant).
     const ctrl = new AbortController();
     this._zoneAbortCtrl = ctrl;
+    this._zoneBatchRunning = true;
 
     // _fetchZone self-registers in _zoneFetches as its first action so the
-    // entry exists before any sync return path (e.g. a persistent-cache hit) can
-    // hit the matching `finally { delete }`. We just collect the promises
-    // here for the Promise.all join.
+    // entry exists before any sync return path (e.g. a persistent-cache hit)
+    // can hit the matching `finally { delete }`. Workers take the next URL
+    // each time one settles; a status-less failure (NWS's block) stops them.
     const failures: unknown[] = [];
-    const promises = Array.from(needed, (url) => this._fetchZone(url, ctrl.signal, failures));
-    await Promise.all(promises);
-    if (failures.length > 0) {
-      // One line per batch, not per zone: a rate-limited burst fails
-      // hundreds at once. NWS's limiter blocks without CORS headers, which
-      // the browser reports as a status-less TypeError.
-      const blocked = failures.some((e) => e instanceof TypeError);
-      console.error(
-        `NWS alerts: ${failures.length} of ${needed.size} zone requests failed`
-        + (blocked ? ' (status-less: NWS may be rate-limiting this address)' : '')
-        + '; those alerts stay without shapes until the next refresh.',
-        failures[0],
-      );
+    let blocked = false;
+    let next = 0;
+    const worker = async (): Promise<void> => {
+      while (next < queue.length && !blocked && !ctrl.signal.aborted) {
+        if (this._mapBusy) await this._untilQuiet();
+        if (ctrl.signal.aborted) break;
+        const url = queue[next++];
+        await this._fetchZone(url, ctrl.signal, failures);
+        // Any status-less failure so far, not just this worker's: concurrent
+        // workers push into the same list.
+        if (!blocked && failures.some((e) => e instanceof TypeError)) blocked = true;
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(this._zonePool, queue.length) }, worker));
+    this._zoneBatchRunning = false;
+    if (this._zoneReplan) {
+      // Refreshed while the batch ran: plan again from the current list.
+      this._zoneReplan = false;
+      void this._resolveZones();
+      return;
     }
     if (myGen !== this._gen) return;   // stale (cleared / reconfigured during the fetch)
     if (this._zoneAbortCtrl === ctrl) this._zoneAbortCtrl = null;
+
+    const missing = failures.length + (queue.length - next);
+    if (blocked) {
+      this._zonePool = Math.max(ZONE_POOL_MIN, Math.floor(this._zonePool / 2));
+      this._zoneBackoffMs = this._zoneBackoffMs ? Math.min(this._zoneBackoffMs * 2, ZONE_BACKOFF_MAX_MS) : ZONE_BACKOFF_MIN_MS;
+      this._zoneBackoffUntil = Date.now() + this._zoneBackoffMs;
+      this._armZoneRetry();
+    } else if (missing < queue.length) {
+      // Shapes arrived, so the address is not blocked: full speed again.
+      this._zonePool = ZONE_POOL_SIZE;
+      this._zoneBackoffMs = 0;
+    }
+    if (missing > 0) {
+      // One line per batch, not per zone.
+      console.error(
+        `NWS alerts: ${missing} of ${queue.length} zone requests failed`
+        + (blocked ? ` (status-less: NWS is rate-limiting this address; next try in ${Math.round(this._zoneBackoffMs / 1000)} s, ${this._zonePool} at a time)` : '')
+        + '; those alerts stay without shapes until the next try.',
+        failures[0],
+      );
+      this._setStatus({ kind: 'zones', failures: missing, total: queue.length });
+    } else if (this._lastStatusKey.startsWith('zones')) {
+      this._setStatus(null);
+    }
 
     // Skip-if-unchanged still applies — only the features whose zones
     // actually arrived will see their decision strings flip, so this is
     // a no-op for any feature whose render state is stable.
     this._render({ skipIfDecisionsUnchanged: true });
+  }
+
+  // Zones still to fetch, most severe alert first and alerts in view before
+  // the hidden ones (whose shapes are not drawn until they scroll in).
+  private _zoneQueue(): string[] {
+    const first: string[] = [];
+    const later: string[] = [];
+    const seen = new Set<string>();
+    for (let i = this._features.length - 1; i >= 0; i--) {
+      const f = this._features[i];
+      if (f.geometry) continue;   // has its own geometry; no zones needed
+      const hidden = this._renderDecisions.get(featureKey(f))?.endsWith('|h') === true;
+      for (const url of (f.properties as AlertProps | null)?.affectedZones ?? []) {
+        if (seen.has(url) || this._zoneCache.has(url) || this._zoneFetches.has(url)) continue;
+        seen.add(url);
+        (hidden ? later : first).push(url);
+      }
+    }
+    return first.concat(later);
+  }
+
+  private _armZoneRetry(): void {
+    if (this._zoneRetryTimer) return;
+    const wait = Math.max(0, this._zoneBackoffUntil - Date.now());
+    this._zoneRetryTimer = setTimeout(() => {
+      this._zoneRetryTimer = null;
+      void this._resolveZones();
+    }, wait);
   }
 
   private async _fetchZone(url: string, signal: AbortSignal, failures: unknown[] = []): Promise<void> {
@@ -313,7 +472,7 @@ export class NwsAlertsLayer {
       // sessions read from disk.
       const cached = await readZone(defaultZoneKV(), url, Date.now());
       if (cached) {
-        this._zoneCache.set(url, cached);
+        this._cacheZone(url, cached);
         return;
       }
       const myGen = this._gen;
@@ -324,12 +483,20 @@ export class NwsAlertsLayer {
       if (!res.ok) throw new Error(`zone fetch ${res.status}`);
       const data = await res.json();
       if (myGen !== this._gen) return;
-      const geom: GeoJSON.Geometry | undefined = data?.geometry;
-      // Some forecast zones return geometry === null (rare, usually
-      // administrative entries with no shape). Cache only real geometries.
-      if (geom && (geom.type === 'Polygon' || geom.type === 'MultiPolygon')) {
-        this._zoneCache.set(url, geom);
-        await writeZone(defaultZoneKV(), url, geom, Date.now());
+      const geom = normalizeZoneGeometry(data?.geometry);
+      if (geom) {
+        const stored = this._cacheZone(url, geom);
+        // Not awaited: the pool limits requests to NWS, and the gzip and
+        // IndexedDB write are not one. Holding the slot for them tied the
+        // next request to the disk (slow on a phone) and, in tests, to
+        // thread-pool time that fake timers do not advance (CI, 2026-10-17).
+        // writeZone never rejects.
+        void writeZone(defaultZoneKV(), url, stored, Date.now());
+      } else {
+        // No shape (administrative entries): remember that for the session
+        // so the zone is not requested again every refresh, but don't
+        // persist it, in case NWS adds one.
+        this._zoneCache.set(url, NO_SHAPE);
       }
     } catch (err) {
       // Deliberate cancellation — alert list was replaced; new
@@ -399,14 +566,30 @@ export class NwsAlertsLayer {
     });
   }
 
+  // The cached zone outline at the drawing tolerance for `zoom`, or the
+  // outline itself when that tolerance is no coarser than the stored one.
+  private _zoneAtZoom(url: string, zoom: number | undefined): GeoJSON.Geometry | undefined {
+    const base = this._zoneCache.get(url);
+    if (!base || zoom === undefined) return base;
+    const tol = simplifyToleranceForZoom(zoom);
+    if (tol <= SIMPLIFY_TOLERANCE_DEG) return base;
+    const key = Math.round(zoom);
+    let perZoom = this._zoneLod.get(url);
+    if (!perZoom) { perZoom = new Map(); this._zoneLod.set(url, perZoom); }
+    let g = perZoom.get(key);
+    if (!g) { g = simplifyGeometry(base, tol); perZoom.set(key, g); }
+    return g;
+  }
+
   // Build a synthetic MultiPolygon from whatever zone shapes are currently
   // in the cache. Zones still being fetched are silently omitted — the
   // _renderInner pass picks them up on a subsequent re-render once they
-  // arrive. Returns null if no zones are cached yet.
-  private _geometryFromZones(zoneUrls: string[]): GeoJSON.MultiPolygon | null {
+  // arrive. Returns null if no zones are cached yet. With `zoom`, the
+  // shapes come at that zoom's drawing tolerance.
+  private _geometryFromZones(zoneUrls: string[], zoom?: number): GeoJSON.MultiPolygon | null {
     const polys: GeoJSON.Position[][][] = [];
     for (const url of zoneUrls) {
-      const g = this._zoneCache.get(url);
+      const g = this._zoneAtZoom(url, zoom);
       if (!g) continue;
       if (g.type === 'Polygon') {
         polys.push(g.coordinates);
@@ -419,6 +602,9 @@ export class NwsAlertsLayer {
   }
 
   private _render(opts?: { skipIfDecisionsUnchanged?: boolean }): void {
+    // Not while the map moves: the quiet callback renders, and the
+    // decision diff finds whatever changed meanwhile.
+    if (this._mapBusy) return;
     try {
       this._renderInner(opts);
     } catch (err) {
@@ -439,6 +625,17 @@ export class NwsAlertsLayer {
     // from cached zone shapes. Features whose zones haven't arrived yet
     // are excluded from this render but stay in _features so they pick
     // up geometry on the next render when zones land.
+    // Only shapes that touch the padded view are built: at zoom 9 that was 7
+    // of 572 polygons (2026-10-16), and Leaflet re-projects every vertex of
+    // every built polygon on each zoom. The decision string carries the
+    // visibility, so a view change that moves shapes in or out re-renders
+    // and one that doesn't is a no-op.
+    const view = this._viewBounds();
+    // Drawing tolerance follows the zoom (simplifyToleranceForZoom); the
+    // decision string carries the zoom so a zoom across levels redraws.
+    const zoom = this._map.getZoom();
+    const lod = Math.round(zoom);
+    const tol = simplifyToleranceForZoom(zoom);
     const renderable: GeoJSON.Feature[] = [];
     const newDecisions = new Map<string, string>();
     for (const f of this._features) {
@@ -446,26 +643,31 @@ export class NwsAlertsLayer {
       const props = f.properties as AlertProps | null;
 
       let geom: GeoJSON.Geometry | null = f.geometry ?? null;
+      let bounds: LngLatBounds | null = null;
       let zonesLoaded = 0;
       let zonesTotal = 0;
-      if (!geom) {
-        const zones = props?.affectedZones ?? [];
+      const zones = geom ? [] : props?.affectedZones ?? [];
+      if (geom) {
+        bounds = this._inlineBounds(key, geom);
+      } else {
         zonesTotal = zones.length;
-        const synth = this._geometryFromZones(zones);
-        if (synth) {
-          geom = synth;
-          // Count how many zones contributed — for the decision string.
-          zonesLoaded = zones.filter((u) => this._zoneCache.has(u)).length;
-        }
+        // Count how many zones contributed — for the decision string.
+        zonesLoaded = zones.filter((u) => this._zoneCache.has(u)).length;
+        bounds = this._zonesBounds(zones);
       }
+      const visible = !view || !bounds || boundsIntersect(bounds, view);
 
       // Decision captures everything that affects this feature's render:
-      // event (colour), severity (z-order), and either "polygon" for
-      // inline geometry or "zones:N/M" for zone-derived. When more zones
-      // arrive the count rises, the decision flips, and we re-render.
+      // event (colour), severity (z-order), either "polygon" for inline
+      // geometry or "zones:N/M" for zone-derived, and whether it is in
+      // view. When more zones arrive the count rises, the decision flips,
+      // and we re-render.
       const geomTag = f.geometry ? 'polygon' : `zones:${zonesLoaded}/${zonesTotal}`;
-      newDecisions.set(key, `${props?.event ?? ''}|${props?.severity ?? ''}|${geomTag}`);
+      newDecisions.set(key, `${props?.event ?? ''}|${props?.severity ?? ''}|${geomTag}|${visible ? 'v' : 'h'}|z${lod}`);
 
+      if (!visible) continue;
+      if (geom) geom = simplifyGeometry(geom, tol);   // inline storm polygons: small, simplified per render
+      else if (zonesLoaded > 0) geom = this._geometryFromZones(zones, zoom);
       if (!geom) continue;   // zone-only with nothing in cache yet — skip this render
 
       // Push a feature carrying the derived geometry; preserve id/properties
@@ -521,11 +723,104 @@ export class NwsAlertsLayer {
       },
     } as L.GeoJSONOptions);
     this._polygonLayer.addTo(this._map);
+    this._polygonLayer.on('popupclose', this._onPopupClose);
   }
 
   /** 80% of the current map height, floored at 200 px so a tiny / not-yet-sized map still produces a usable popup. */
   private _popupMaxHeight(): number {
     return Math.max(200, Math.floor(this._map.getSize().y * 0.8));
+  }
+
+  // The view the canvas renderer draws (padding 0.5 = half a viewport past
+  // each edge), or null for a map without a size yet (hidden card, editor
+  // preview before layout): then everything counts as visible.
+  private _viewBounds(): L.LatLngBounds | null {
+    const size = this._map.getSize();
+    if (!size.x || !size.y) return null;
+    return this._map.getBounds().pad(0.5);
+  }
+
+  private _inlineBounds(key: string, geom: GeoJSON.Geometry): LngLatBounds | null {
+    let b = this._featureBounds.get(key);
+    if (b === undefined) {
+      b = geometryLngLatBounds(geom);
+      this._featureBounds.set(key, b);
+    }
+    return b;
+  }
+
+  /** Union of the bounds of the zones already cached; null when none are. */
+  private _zonesBounds(zoneUrls: string[]): LngLatBounds | null {
+    let out: LngLatBounds | null = null;
+    for (const url of zoneUrls) {
+      const b = this._zoneBounds.get(url);
+      if (!b) continue;
+      out = out
+        ? { minLng: Math.min(out.minLng, b.minLng), minLat: Math.min(out.minLat, b.minLat), maxLng: Math.max(out.maxLng, b.maxLng), maxLat: Math.max(out.maxLat, b.maxLat) }
+        : { ...b };
+    }
+    return out;
+  }
+
+  // Every zone enters the cache simplified (see SIMPLIFY_TOLERANCE_DEG), from
+  // the network and from disk alike, so an entry written before this
+  // existed is cut down on read too. Returns what went in, for writeZone.
+  private _cacheZone(url: string, geom: GeoJSON.Geometry): GeoJSON.Geometry {
+    const simplified = simplifyGeometry(geom);
+    this._zoneCache.set(url, simplified);
+    this._zoneLod.delete(url);
+    const b = geometryLngLatBounds(simplified);
+    if (b) this._zoneBounds.set(url, b);
+    return simplified;
+  }
+
+  private _onViewChange = (): void => {
+    if (this._features.length === 0) return;
+    if (this._popupOpen()) {
+      this._renderAfterPopup = true;
+      return;
+    }
+    this._render({ skipIfDecisionsUnchanged: true });
+  };
+
+  private _onMapBusy = (): void => {
+    this._mapBusy = true;
+  };
+
+  // The map has been still for a second: render for the new view and let
+  // the zone workers go on.
+  private _onMapQuiet = (): void => {
+    this._mapBusy = false;
+    this._releaseQuietWaiters();
+    this._onViewChange();
+  };
+
+  private _untilQuiet(): Promise<void> {
+    return new Promise((resolve) => { this._quietWaiters.push(resolve); });
+  }
+
+  private _releaseQuietWaiters(): void {
+    const waiters = this._quietWaiters;
+    this._quietWaiters = [];
+    for (const w of waiters) w();
+  }
+
+  private _onPopupClose = (): void => {
+    if (!this._renderAfterPopup) return;
+    this._renderAfterPopup = false;
+    this._render({ skipIfDecisionsUnchanged: true });
+  };
+
+  private _popupOpen(): boolean {
+    return this._polygonLayer?.getLayers().some((l) => (l as L.Layer).isPopupOpen?.()) ?? false;
+  }
+
+  // One callback per change of state, so the host's banner toggles once.
+  private _setStatus(status: AlertsStatus | null): void {
+    const key = status ? `${status.kind}:${status.failures}` : '';
+    if (key === this._lastStatusKey) return;
+    this._lastStatusKey = key;
+    this._onStatus?.(status);
   }
 
   /** Backoff delay for the Nth consecutive failure (1-based). */
@@ -722,4 +1017,5 @@ export {
   relativeLuminance,
   formatDateTime,
   buildPopupHtml,
+  boundsIntersect,
 };

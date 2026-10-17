@@ -18,6 +18,10 @@ show_wildfires: true
 dwd_wind: arrows
 ```
 
+## While the map moves
+
+The overlays leave the map during a zoom gesture and come back once the map has been still for a second: the alert and wildfire outlines, the fire icons and wind barbs, and the lightning strikes. Wildfires and lightning redraw at that moment, not at every step of a pinch. The NWS alerts layer does nothing at all while the map moves (no redraw, no zone shape fetched or decoded), and it draws zone outlines at half a pixel of detail for the current zoom. Leaflet scales a canvas with a CSS transform on every touch move and animates every icon on the snap-back, which crashed Safari on an iPhone whenever one of these overlays was on.
+
 ## Wildfires
 
 When `show_wildfires: true`, the card overlays active US wildfire perimeters from the National Interagency Fire Center's [WFIGS Current Interagency Fire Perimeters](https://data-nifc.opendata.arcgis.com/datasets/nifc::wfigs-current-interagency-fire-perimeters/about) feed.
@@ -55,7 +59,9 @@ Click any alert to see its event type, headline, severity / certainty / urgency,
 
 The overlay refreshes every 60 seconds when alerts are visible (alerts can have minute-scale lifespans, especially tornado warnings) and every 5 minutes when none are. Filter by category, by severity floor, or by distance from the map centre.
 
-The default filter excludes the `marine` category (most users are inland; coastal users opt back in via `alerts_categories`). Other categories: `tornado`, `thunderstorm`, `flood`, `winter`, `tropical`, `fire_weather`, `heat`, `wind`, `other`.
+The default filter excludes the `marine` category (most users are inland; coastal users opt back in via `alerts_categories`). Other categories: `tornado`, `thunderstorm`, `flood`, `winter`, `tropical`, `fire_weather`, `heat`, `wind`, `other`. Marine zones are the heaviest shapes by far: with every category on, more than half of all alert vertices are Small Craft Advisories and Gale Warnings.
+
+Alert areas are drawn from NWS zone outlines simplified to about 220 m, a difference that is invisible below zoom 11, and only the alerts that touch the current view are built as map polygons. Zone shapes are fetched 24 at a time, alerts in view first, because api.weather.gov blocks an address that sends a large burst (the limit is not published; it clears within seconds). After a block the card waits 5 s, doubling to 5 min, and resumes at half speed. If the alerts list or some zone shapes fail to load, a banner at the top of the map says so while the card retries.
 
 > [!CAUTION]
 > **NWS alert data is for informational purposes only.**

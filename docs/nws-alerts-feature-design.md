@@ -19,6 +19,7 @@ Both Phase 1 (polygon-only alerts) and Phase 2 (zone resolution) released in [v3
 - **WCAG-style relative-luminance check** for popup accent colour — replaces a hardcoded list of "light" hex values, so future palette additions get the right text colour automatically.
 - **Popup `autoPan: true` + 12 px inset** so off-edge alerts slide into view.
 - **No-rebuild-on-tick guard** wired in from day 1 (per the lessons section above): `_renderDecisions` map keyed by stable `feature.id` (NWS URL), with `zones:N/M` count baked into the decision string so re-renders fire only when new zones actually arrive.
+- **Memory and the NWS burst limit (PR 318).** Zone outlines are simplified to 0.002° at cache entry and again to half a pixel for the drawing zoom (`simplifyToleranceForZoom`, memoised per zone and integer zoom; rings below the tolerance are dropped). Only alerts whose bounds touch the view are built as polygons. Zone shapes are fetched 24 at a time, in-view alerts first, with a 5 s to 5 min backoff after a block (api.weather.gov blocks a burst of about 2,000 requests; the block is a status-less failure in the browser). GeometryCollection zones are normalised to MultiPolygon, fetch failures show a banner, and the layer is idle while the map moves until it has been still for a second (`map-quiet.ts`).
 
 The rest of the design — colour palette, severity-sort overlap, adaptive 60s/5min refresh, category-not-events filter, US-only banner, marine off by default, multi-language localization, README `[!CAUTION]` disclaimer — landed as written.
 

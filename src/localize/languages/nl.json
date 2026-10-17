@@ -5,6 +5,8 @@
   "ui": {
     "rate_limited": "Aanvraaglimiet bereikt — wachten op herstel van quotum",
     "server_error": "Fout bij radarserver — opnieuw proberen",
+    "alerts_fetch_failed": "NWS-waarschuwingen: ophalen mislukt — opnieuw proberen",
+    "alerts_zones_failed": "NWS-waarschuwingen: {n} gebiedsomtrekken niet geladen — opnieuw proberen",
     "region_warning": {
       "wildfires_us_only": "Bosbranddata is alleen voor de VS. Uw Home Assistant-locatie is buiten de VS — er worden geen branden getoond.",
       "noaa_us_only": "NOAA-radar is alleen voor de VS. Uw Home Assistant-locatie is buiten de VS — de radar laadt mogelijk niet.",

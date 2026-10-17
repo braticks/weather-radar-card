@@ -475,7 +475,32 @@ function cancelTile(layer: FetchTileLayer | FetchWmsTileLayer, tile: TileWithAbo
   }
 }
 
+// Leaflet positions each tile with translate3d, which makes every tile its
+// own compositing layer. On WebKit each such layer gets a device-resolution
+// backing store: 11.8 MB per 512 px radar tile at 3x (Safari Web Inspector,
+// Layers panel, 2026-10-16), 730 MB for a 13-frame loop, and iOS killed
+// the page at its 2 GB limit on a pinch. A tile never moves inside its
+// level container (Leaflet moves and scales the container), so plain
+// left/top positioning loses nothing, and the tiles paint into the
+// container's one buffer, sized by the viewport rather than the tile
+// count. It is what Leaflet itself does without 3D transforms
+// (DomUtil.setPosition). Applied on tileloadstart, which Leaflet fires
+// right after it positions and appends the tile.
+export function flattenTile(tile: HTMLElement & { _leaflet_pos?: { x: number; y: number } }): void {
+  const p = tile._leaflet_pos;
+  if (!p) return;
+  tile.style.transform = '';
+  (tile.style as unknown as { webkitTransform: string }).webkitTransform = '';
+  tile.style.left = `${p.x}px`;
+  tile.style.top = `${p.y}px`;
+}
+
+export function wireFlatTiles(layer: L.GridLayer): void {
+  layer.on('tileloadstart', (e: L.TileEvent) => flattenTile(e.tile));
+}
+
 export function wireAbortLifecycle(layer: FetchTileLayer | FetchWmsTileLayer): void {
+  wireFlatTiles(layer);
   layer.on('tileunload', (e: L.TileEvent) => {
     cancelTile(layer, e.tile as TileWithAbort);
   });

@@ -15,6 +15,8 @@ import {
   relativeTime,
 } from './lightning-helpers';
 import { Z_LIGHTNING } from './const';
+import { onMapQuiet } from './map-quiet';
+import { hideElementWhileZooming } from './hide-while-zooming';
 
 // Lightning overlay — renders Blitzortung integration's per-strike
 // geo_location entities onto a single canvas, fill-coloured by age.
@@ -144,6 +146,8 @@ export class LightningLayer {
   // Bound handlers kept as fields so clear() can detach exactly what
   // start() attached.
   private _onViewChange = (): void => this._repositionAndRedraw();
+  private _disposeQuiet: (() => void) | null = null;
+  private _disposeHide: (() => void) | null = null;
   private _onMapClick = (e: L.LeafletMouseEvent): void => this._handleClick(e);
   private _onMapMouseMove = (e: L.LeafletMouseEvent): void => this._handleMouseMove(e);
 
@@ -164,8 +168,11 @@ export class LightningLayer {
     // explicit zoomend listener repaints one frame earlier so the
     // glyphs snap to their post-zoom positions as soon as the zoom
     // animation lands. resize re-pads the canvas for the new viewport.
-    this._map.on('moveend', this._onViewChange);
-    this._map.on('zoomend', this._onViewChange);
+    // The repaint waits until the map has been still for a second after a
+    // move or zoom, and the canvas leaves the page while the map zooms
+    // (see map-quiet.ts and hide-while-zooming.ts).
+    this._disposeQuiet = onMapQuiet(this._map, this._onViewChange);
+    this._disposeHide = hideElementWhileZooming(this._map, () => this._canvas ?? undefined);
     this._map.on('resize', this._onViewChange);
     this._map.on('click', this._onMapClick);
     this._map.on('mousemove', this._onMapMouseMove);
@@ -197,8 +204,10 @@ export class LightningLayer {
   clear(): void {
     if (this._ageTimer) { clearInterval(this._ageTimer); this._ageTimer = null; }
     if (this._popup) { this._map.closePopup(this._popup); this._popup = null; }
-    this._map.off('moveend', this._onViewChange);
-    this._map.off('zoomend', this._onViewChange);
+    this._disposeQuiet?.();
+    this._disposeQuiet = null;
+    this._disposeHide?.();
+    this._disposeHide = null;
     this._map.off('resize', this._onViewChange);
     this._map.off('click', this._onMapClick);
     this._map.off('mousemove', this._onMapMouseMove);

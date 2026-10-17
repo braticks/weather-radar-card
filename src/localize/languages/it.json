@@ -5,6 +5,8 @@
   "ui": {
     "rate_limited": "Limite di richieste raggiunto — in attesa del ripristino della quota",
     "server_error": "Errore del server radar — nuovo tentativo",
+    "alerts_fetch_failed": "Avvisi NWS: caricamento non riuscito — nuovo tentativo",
+    "alerts_zones_failed": "Avvisi NWS: {n} contorni di zona non caricati — nuovo tentativo",
     "region_warning": {
       "wildfires_us_only": "I dati sugli incendi sono solo per gli USA. La tua posizione di Home Assistant è fuori dagli USA: non verrà mostrato alcun incendio.",
       "noaa_us_only": "Il radar NOAA è solo per gli USA. La tua posizione di Home Assistant è fuori dagli USA: il radar potrebbe non caricarsi.",

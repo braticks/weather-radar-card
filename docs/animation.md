@@ -442,6 +442,37 @@ As each frame settles (`layerSettled`):
    this walks the remaining load-order entries rather than counting
    down from the failed index.
 
+## Tile memory and zoom gestures on WebKit
+
+iOS ends Safari's page process at 2 GB, and a 13-frame loop on a 3x
+phone sat near it (Safari Web Inspector, Layers panel, 2026-10-16):
+
+- Leaflet positions each tile with `translate3d`, which makes every
+  tile its own compositing layer, and WebKit gives each one a
+  device-resolution buffer: 11.8 MB per 512 px radar tile, 730 MB for
+  the loop. `wireFlatTiles` (fetch-tile-layer.ts) re-positions each
+  tile with `left`/`top` on `tileloadstart`, so the tiles paint into
+  their level container's one buffer. A tile never moves inside its
+  container (Leaflet moves and scales the container), so nothing is
+  lost.
+- An opacity-0 frame container still gets a buffer (37.75 MB each).
+  Frames outside the current crossfade are `visibility: hidden`
+  (`_frameVisible` / `_frameHidden`, 50 ms after the fade-out ends).
+  Layout stays, so the motion snapshots still measure the tiles.
+- Leaflet blends tiles with `mix-blend-mode: plus-lighter` for a
+  Chromium seam bug and gives Safari an `image-rendering` hint; either
+  stops WebKit compositing an image straight from its decoded bitmap.
+  The card's styles reset both under `.leaflet-safari`.
+- During a pinch Leaflet creates tiles for every integer zoom the
+  gesture crosses and prunes them only when it ends (557 tiles in 85
+  containers for one fast pinch). Frame layers and the DWD mask use
+  `updateWhenZooming: false` (`ZOOM_GESTURE_OPTIONS`): they scale
+  their current tiles and load the new zoom once it settles.
+
+With these the compositor held 44 MB at rest and 231 MB mid-crossfade
+on the same phone (was 368 to 730 MB). The hazard overlays have their
+own rule for zoom gestures: see overlays.md, "While the map moves".
+
 ## Forecast refresh — swapping a frame's layer mid-loop
 
 With `forecast_refresh_minutes` set (DWD only), `_updateRadar` also

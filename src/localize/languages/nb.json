@@ -5,6 +5,8 @@
   "ui": {
     "rate_limited": "Forespørselsgrense nådd — venter på tilbakestilling",
     "server_error": "Feil på radarserveren — prøver igjen",
+    "alerts_fetch_failed": "NWS-varsler: henting mislyktes — prøver igjen",
+    "alerts_zones_failed": "NWS-varsler: {n} områdeomriss ble ikke lastet — prøver igjen",
     "region_warning": {
       "wildfires_us_only": "Skogbrann-data er kun for USA. Din Home Assistant-plassering er utenfor USA – ingen branner vil vises.",
       "noaa_us_only": "NOAA-radar er kun for USA. Din Home Assistant-plassering er utenfor USA – radaren laster kanskje ikke.",
