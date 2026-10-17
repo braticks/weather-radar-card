@@ -23,10 +23,15 @@ import { NwsAlertsLayer } from '../src/nws-alerts-layer';
 const ZONE = (id: string | number): string => `https://api.weather.gov/zones/forecast/Z${id}`;
 const SHAPE = JSON.stringify({ geometry: { type: 'Polygon', coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]] } });
 
+// Every layer a test makes is cleared after it: a worker still awaiting
+// something would otherwise call the next test's fetch.
+const layers: any[] = [];
+
 function makeLayer(onStatus?: (s: any) => void): any {
   const map = { on: vi.fn(), off: vi.fn(), getSize: () => ({ x: 0, y: 0 }), getBounds: () => ({ pad: () => null }), removeLayer: vi.fn() };
   const layer = new NwsAlertsLayer(map as any, () => ({ type: 'custom:weather-radar-card' } as any), undefined, onStatus) as any;
   layer._render = vi.fn();
+  layers.push(layer);
   return layer;
 }
 
@@ -57,7 +62,10 @@ function fakeNws(blocked: () => boolean = () => false) {
 }
 
 /** Advance fake time in 10 ms steps until `cond` holds (the pool chains
- * timers through microtasks, which runAllTimersAsync does not follow). */
+ * timers through microtasks, which runAllTimersAsync does not follow).
+ * A step is one event-loop turn of a few microseconds, so nothing waited
+ * on here may depend on real I/O: on a loaded CI runner the zone write's
+ * gzip did not finish inside 500 steps (2026-10-17). */
 async function until(cond: () => boolean, maxSteps = 500): Promise<void> {
   for (let i = 0; i < maxSteps && !cond(); i++) await vi.advanceTimersByTimeAsync(10);
   expect(cond()).toBe(true);
@@ -72,6 +80,7 @@ describe('zone pool', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
   });
   afterEach(() => {
+    for (const l of layers.splice(0)) l.clear();
     vi.useRealTimers();
     global.fetch = realFetch;
     vi.restoreAllMocks();

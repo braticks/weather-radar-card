@@ -486,7 +486,12 @@ export class NwsAlertsLayer {
       const geom = normalizeZoneGeometry(data?.geometry);
       if (geom) {
         const stored = this._cacheZone(url, geom);
-        await writeZone(defaultZoneKV(), url, stored, Date.now());
+        // Not awaited: the pool limits requests to NWS, and the gzip and
+        // IndexedDB write are not one. Holding the slot for them tied the
+        // next request to the disk (slow on a phone) and, in tests, to
+        // thread-pool time that fake timers do not advance (CI, 2026-10-17).
+        // writeZone never rejects.
+        void writeZone(defaultZoneKV(), url, stored, Date.now());
       } else {
         // No shape (administrative entries): remember that for the session
         // so the zone is not requested again every refresh, but don't
