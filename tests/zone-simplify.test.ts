@@ -4,7 +4,25 @@
 // 0.002° tolerance the same set is 318 k (measured 2026-10-16).
 
 import { describe, it, expect } from 'vitest';
-import { simplifyRing, simplifyGeometry, normalizeZoneGeometry, SIMPLIFY_TOLERANCE_DEG } from '../src/zone-store';
+import { simplifyRing, simplifyGeometry, normalizeZoneGeometry, simplifyToleranceForZoom, SIMPLIFY_TOLERANCE_DEG } from '../src/zone-store';
+
+describe('simplifyToleranceForZoom', () => {
+  it('is half a pixel of longitude at the zoom, coarser at low zooms', () => {
+    expect(simplifyToleranceForZoom(3)).toBeCloseTo(0.0879, 4);
+    expect(simplifyToleranceForZoom(5)).toBeCloseTo(0.0220, 4);
+    expect(simplifyToleranceForZoom(7)).toBeCloseTo(0.0055, 4);
+  });
+
+  it('never goes finer than the stored outline', () => {
+    expect(simplifyToleranceForZoom(9)).toBe(SIMPLIFY_TOLERANCE_DEG);
+    expect(simplifyToleranceForZoom(16)).toBe(SIMPLIFY_TOLERANCE_DEG);
+  });
+
+  it('rounds fractional zooms and clamps below zero', () => {
+    expect(simplifyToleranceForZoom(4.6)).toBe(simplifyToleranceForZoom(5));
+    expect(simplifyToleranceForZoom(-2)).toBe(simplifyToleranceForZoom(0));
+  });
+});
 
 describe('normalizeZoneGeometry', () => {
   const poly: GeoJSON.Polygon = { type: 'Polygon', coordinates: [[[0, 0], [1, 0], [1, 1], [0, 0]]] };
@@ -110,6 +128,26 @@ describe('simplifyGeometry', () => {
     expect(out.coordinates).toHaveLength(2);
     expect(out.coordinates[0][0]).toEqual(square);
     expect(out.coordinates[1][0].length).toBeLessThan(200);
+  });
+
+  it('drops holes and islets smaller than the tolerance, and a polygon whose outer ring is', () => {
+    const islet: GeoJSON.Position[] = [[5, 5], [5.01, 5], [5.01, 5.01], [5, 5.01], [5, 5]];
+    const hole: GeoJSON.Position[] = [[0.4, 0.4], [0.41, 0.4], [0.41, 0.41], [0.4, 0.41], [0.4, 0.4]];
+    const geom: GeoJSON.MultiPolygon = { type: 'MultiPolygon', coordinates: [[square, hole], [islet]] };
+    const out = simplifyGeometry(geom, 0.05) as GeoJSON.MultiPolygon;
+    expect(out.coordinates).toEqual([[square]]);
+    // At the stored tolerance both are far larger than 0.002 degrees and stay.
+    expect((simplifyGeometry(geom, 0.002) as GeoJSON.MultiPolygon).coordinates).toEqual([[square, hole], [islet]]);
+  });
+
+  it('a ring that is thin in one direction only is kept', () => {
+    const strip: GeoJSON.Position[] = [[0, 0], [1, 0], [1, 0.001], [0, 0.001], [0, 0]];
+    expect((simplifyGeometry({ type: 'Polygon', coordinates: [strip] }, 0.05) as GeoJSON.Polygon).coordinates[0]).toEqual(strip);
+  });
+
+  it('a Polygon that vanishes becomes an empty MultiPolygon', () => {
+    const islet: GeoJSON.Position[] = [[5, 5], [5.01, 5], [5.01, 5.01], [5, 5.01], [5, 5]];
+    expect(simplifyGeometry({ type: 'Polygon', coordinates: [islet] }, 0.05)).toEqual({ type: 'MultiPolygon', coordinates: [] });
   });
 
   it('passes other geometry types and tolerance 0 through untouched', () => {

@@ -18,6 +18,10 @@ show_wildfires: true
 dwd_wind: arrows
 ```
 
+## While the map moves
+
+The overlays leave the map during a zoom gesture and come back once the map has been still for a second: the alert and wildfire outlines, the fire icons and wind barbs, and the lightning strikes. Wildfires and lightning redraw at that moment, not at every step of a pinch. The NWS alerts layer does nothing at all while the map moves (no redraw, no zone shape fetched or decoded), and it draws zone outlines at half a pixel of detail for the current zoom. Leaflet scales a canvas with a CSS transform on every touch move and animates every icon on the snap-back, which crashed Safari on an iPhone whenever one of these overlays was on.
+
 ## Wildfires
 
 When `show_wildfires: true`, the card overlays active US wildfire perimeters from the National Interagency Fire Center's [WFIGS Current Interagency Fire Perimeters](https://data-nifc.opendata.arcgis.com/datasets/nifc::wfigs-current-interagency-fire-perimeters/about) feed.

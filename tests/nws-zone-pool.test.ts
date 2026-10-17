@@ -186,6 +186,52 @@ describe('zone pool', () => {
     expect(calls).toHaveLength(2);
   });
 
+  it('a batch planned while the map moves starts no request until the quiet callback', async () => {
+    const nws = fakeNws();
+    const layer = makeLayer();
+    layer._features = [alert('a', Array.from({ length: 6 }, (_, i) => ZONE(i)))];
+    layer._onMapBusy();
+    void layer._resolveZones();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(nws.calls).toBe(0);
+    layer._onMapQuiet();
+    await until(() => layer._zoneCache.size === 6 && batchDone(layer));
+    expect(nws.calls).toBe(6);
+  });
+
+  it('workers already running pause before their next request while the map moves', async () => {
+    const nws = fakeNws();
+    const layer = makeLayer();
+    layer._features = [alert('a', Array.from({ length: 12 }, (_, i) => ZONE(i)))];
+    layer._zonePool = 2;
+    void layer._resolveZones();
+    await until(() => nws.calls >= 2);
+    layer._onMapBusy();
+    const atBusy = nws.calls;
+    await vi.advanceTimersByTimeAsync(300);
+    // At most the requests already past the check go out; the rest wait.
+    expect(nws.calls - atBusy).toBeLessThanOrEqual(2);
+    expect(layer._zoneCache.size).toBeLessThan(12);
+    expect(batchDone(layer)).toBe(false);
+    layer._onMapQuiet();
+    await until(() => layer._zoneCache.size === 12 && batchDone(layer));
+    expect(nws.calls).toBe(12);
+  });
+
+  it('clear() releases paused workers so an aborted batch drains', async () => {
+    fakeNws();
+    const layer = makeLayer();
+    layer._features = [alert('a', [ZONE(0), ZONE(1), ZONE(2)])];
+    layer._zonePool = 1;
+    void layer._resolveZones();
+    await vi.advanceTimersByTimeAsync(15);
+    layer._onMapBusy();
+    await vi.advanceTimersByTimeAsync(15);
+    layer.clear();
+    await until(() => batchDone(layer));
+    expect(layer._quietWaiters).toEqual([]);
+  });
+
   it('clear() drops the retry timer and the backoff', async () => {
     fakeNws(() => true);
     const layer = makeLayer();

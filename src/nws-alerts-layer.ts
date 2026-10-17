@@ -8,7 +8,11 @@ import {
 } from './nws-alert-categories';
 import { centroidLngLat, haversineKm, geometryLngLatBounds } from './geo-utils';
 import { sharedCanvasRenderer } from './shared-canvas-renderer';
-import { readZone, writeZone, sweepZones, defaultZoneKV, simplifyGeometry, normalizeZoneGeometry } from './zone-store';
+import { onMapQuiet } from './map-quiet';
+import {
+  readZone, writeZone, sweepZones, defaultZoneKV, simplifyGeometry, normalizeZoneGeometry,
+  simplifyToleranceForZoom, SIMPLIFY_TOLERANCE_DEG,
+} from './zone-store';
 
 // Cache entry for a zone with no drawable shape: contributes nothing to
 // _geometryFromZones and has no bounds, but counts as resolved.
@@ -158,11 +162,18 @@ export class NwsAlertsLayer {
   // view test in _renderInner never walks a vertex.
   private _zoneBounds: Map<string, LngLatBounds> = new Map();
   private _featureBounds: Map<string, LngLatBounds | null> = new Map();
+  // Coarser copies of cached zones per integer zoom, built on first use
+  // (simplifyToleranceForZoom); zoom 9 and up draw the cached outline.
+  private _zoneLod: Map<string, Map<number, GeoJSON.Geometry>> = new Map();
   // A view change while a popup is open defers its re-render to popupclose:
   // the rebuild would close the popup the user is reading.
   private _renderAfterPopup = false;
   private _onStatus: ((status: AlertsStatus | null) => void) | undefined;
   private _lastStatusKey = '';
+  private _disposeQuiet: (() => void) | null = null;
+  // True from movestart/zoomstart until the map has been still for a second.
+  private _mapBusy = false;
+  private _quietWaiters: Array<() => void> = [];
 
   constructor(
     map: L.Map,
@@ -181,7 +192,16 @@ export class NwsAlertsLayer {
     // localStorage caches once per layer start. Fire-and-forget — the
     // sweep never blocks rendering and its failures are swallowed.
     void sweepZones(defaultZoneKV(), Date.now());
-    this._map.on('moveend zoomend resize', this._onViewChange);
+    // While the map moves the layer is idle: no render from any source (a
+    // hass tick, a refresh, zones arriving) and no zone request starts.
+    // Everything resumes once the map has been still for a second (see
+    // map-quiet.ts). A pinch on an iPhone still crashed Safari with this
+    // layer on and nothing in view, often before that second was up
+    // (2026-10-16): what ran during the gesture was the zone pool's
+    // decode, simplify and IndexedDB writes, and renders on hass ticks.
+    this._map.on('movestart zoomstart', this._onMapBusy);
+    this._disposeQuiet = onMapQuiet(this._map, this._onMapQuiet);
+    this._map.on('resize', this._onViewChange);
     void this._fetch();
   }
 
@@ -202,13 +222,19 @@ export class NwsAlertsLayer {
     this._zoneFetches.clear();
     this._zoneBounds.clear();
     this._featureBounds.clear();
+    this._zoneLod.clear();
     this._renderAfterPopup = false;
     if (this._zoneRetryTimer) { clearTimeout(this._zoneRetryTimer); this._zoneRetryTimer = null; }
     this._zoneBackoffMs = 0;
     this._zoneBackoffUntil = 0;
     this._zonePool = ZONE_POOL_SIZE;
     this._zoneReplan = false;
-    this._map.off('moveend zoomend resize', this._onViewChange);
+    this._disposeQuiet?.();
+    this._disposeQuiet = null;
+    this._map.off('movestart zoomstart', this._onMapBusy);
+    this._map.off('resize', this._onViewChange);
+    this._mapBusy = false;
+    this._releaseQuietWaiters();
     this._setStatus(null);
   }
 
@@ -350,6 +376,8 @@ export class NwsAlertsLayer {
     let next = 0;
     const worker = async (): Promise<void> => {
       while (next < queue.length && !blocked && !ctrl.signal.aborted) {
+        if (this._mapBusy) await this._untilQuiet();
+        if (ctrl.signal.aborted) break;
         const url = queue[next++];
         await this._fetchZone(url, ctrl.signal, failures);
         // Any status-less failure so far, not just this worker's: concurrent
@@ -533,14 +561,30 @@ export class NwsAlertsLayer {
     });
   }
 
+  // The cached zone outline at the drawing tolerance for `zoom`, or the
+  // outline itself when that tolerance is no coarser than the stored one.
+  private _zoneAtZoom(url: string, zoom: number | undefined): GeoJSON.Geometry | undefined {
+    const base = this._zoneCache.get(url);
+    if (!base || zoom === undefined) return base;
+    const tol = simplifyToleranceForZoom(zoom);
+    if (tol <= SIMPLIFY_TOLERANCE_DEG) return base;
+    const key = Math.round(zoom);
+    let perZoom = this._zoneLod.get(url);
+    if (!perZoom) { perZoom = new Map(); this._zoneLod.set(url, perZoom); }
+    let g = perZoom.get(key);
+    if (!g) { g = simplifyGeometry(base, tol); perZoom.set(key, g); }
+    return g;
+  }
+
   // Build a synthetic MultiPolygon from whatever zone shapes are currently
   // in the cache. Zones still being fetched are silently omitted — the
   // _renderInner pass picks them up on a subsequent re-render once they
-  // arrive. Returns null if no zones are cached yet.
-  private _geometryFromZones(zoneUrls: string[]): GeoJSON.MultiPolygon | null {
+  // arrive. Returns null if no zones are cached yet. With `zoom`, the
+  // shapes come at that zoom's drawing tolerance.
+  private _geometryFromZones(zoneUrls: string[], zoom?: number): GeoJSON.MultiPolygon | null {
     const polys: GeoJSON.Position[][][] = [];
     for (const url of zoneUrls) {
-      const g = this._zoneCache.get(url);
+      const g = this._zoneAtZoom(url, zoom);
       if (!g) continue;
       if (g.type === 'Polygon') {
         polys.push(g.coordinates);
@@ -553,6 +597,9 @@ export class NwsAlertsLayer {
   }
 
   private _render(opts?: { skipIfDecisionsUnchanged?: boolean }): void {
+    // Not while the map moves: the quiet callback renders, and the
+    // decision diff finds whatever changed meanwhile.
+    if (this._mapBusy) return;
     try {
       this._renderInner(opts);
     } catch (err) {
@@ -579,6 +626,11 @@ export class NwsAlertsLayer {
     // visibility, so a view change that moves shapes in or out re-renders
     // and one that doesn't is a no-op.
     const view = this._viewBounds();
+    // Drawing tolerance follows the zoom (simplifyToleranceForZoom); the
+    // decision string carries the zoom so a zoom across levels redraws.
+    const zoom = this._map.getZoom();
+    const lod = Math.round(zoom);
+    const tol = simplifyToleranceForZoom(zoom);
     const renderable: GeoJSON.Feature[] = [];
     const newDecisions = new Map<string, string>();
     for (const f of this._features) {
@@ -606,10 +658,11 @@ export class NwsAlertsLayer {
       // view. When more zones arrive the count rises, the decision flips,
       // and we re-render.
       const geomTag = f.geometry ? 'polygon' : `zones:${zonesLoaded}/${zonesTotal}`;
-      newDecisions.set(key, `${props?.event ?? ''}|${props?.severity ?? ''}|${geomTag}|${visible ? 'v' : 'h'}`);
+      newDecisions.set(key, `${props?.event ?? ''}|${props?.severity ?? ''}|${geomTag}|${visible ? 'v' : 'h'}|z${lod}`);
 
       if (!visible) continue;
-      if (!geom && zonesLoaded > 0) geom = this._geometryFromZones(zones);
+      if (geom) geom = simplifyGeometry(geom, tol);   // inline storm polygons: small, simplified per render
+      else if (zonesLoaded > 0) geom = this._geometryFromZones(zones, zoom);
       if (!geom) continue;   // zone-only with nothing in cache yet — skip this render
 
       // Push a feature carrying the derived geometry; preserve id/properties
@@ -710,6 +763,7 @@ export class NwsAlertsLayer {
   private _cacheZone(url: string, geom: GeoJSON.Geometry): GeoJSON.Geometry {
     const simplified = simplifyGeometry(geom);
     this._zoneCache.set(url, simplified);
+    this._zoneLod.delete(url);
     const b = geometryLngLatBounds(simplified);
     if (b) this._zoneBounds.set(url, b);
     return simplified;
@@ -723,6 +777,28 @@ export class NwsAlertsLayer {
     }
     this._render({ skipIfDecisionsUnchanged: true });
   };
+
+  private _onMapBusy = (): void => {
+    this._mapBusy = true;
+  };
+
+  // The map has been still for a second: render for the new view and let
+  // the zone workers go on.
+  private _onMapQuiet = (): void => {
+    this._mapBusy = false;
+    this._releaseQuietWaiters();
+    this._onViewChange();
+  };
+
+  private _untilQuiet(): Promise<void> {
+    return new Promise((resolve) => { this._quietWaiters.push(resolve); });
+  }
+
+  private _releaseQuietWaiters(): void {
+    const waiters = this._quietWaiters;
+    this._quietWaiters = [];
+    for (const w of waiters) w();
+  }
 
   private _onPopupClose = (): void => {
     if (!this._renderAfterPopup) return;

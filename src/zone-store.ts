@@ -80,6 +80,17 @@ export function quantizeGeometry(geom: GeoJSON.Geometry, dp = COORD_DP): GeoJSON
 // tolerance was current when written; a change here reaches them at the TTL.
 export const SIMPLIFY_TOLERANCE_DEG = 0.002;
 
+// Outline tolerance for drawing at a given map zoom: half a pixel of
+// longitude at that zoom (256 px tiles), never finer than the stored
+// SIMPLIFY_TOLERANCE_DEG. At zoom 3 that is ~0.09°, at zoom 5 ~0.02°; from
+// zoom 9 the stored outline is used as it is. The rebuild after a zoom
+// gesture was still a 200 ms to 2 s block with ~450 alerts in view at the
+// zoom the snap-back of an over-zoomed pinch lands on (2026-10-16).
+export function simplifyToleranceForZoom(zoom: number): number {
+  const z = Math.max(0, Math.round(zoom));
+  return Math.max(SIMPLIFY_TOLERANCE_DEG, (0.5 * 360) / (256 * 2 ** z));
+}
+
 /** Douglas-Peucker on one ring. The closure point stays. A ring that would
  * fall below four points is returned as it is: a zone smaller than the
  * tolerance has few points anyway, and a triangle or less is not a ring. */
@@ -140,14 +151,48 @@ export function normalizeZoneGeometry(geom: GeoJSON.Geometry | null | undefined)
   return polys.length ? { type: 'MultiPolygon', coordinates: polys } : null;
 }
 
-/** Simplify every ring of a Polygon / MultiPolygon; other types pass through. */
+/** A ring whose extent is below the tolerance in both directions: an
+ * islet or a hole smaller than what the tolerance can show. */
+function ringBelowTolerance(ring: GeoJSON.Position[], tol: number): boolean {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const [x, y] of ring) {
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+  return maxX - minX < tol && maxY - minY < tol;
+}
+
+/** Simplify one polygon's rings; null when its outer ring is below the
+ * tolerance. Holes below it are dropped: at a coarse drawing tolerance
+ * the thousands of islets and holes in marine zones kept four points each
+ * and were most of what was left (2026-10-16). */
+function simplifyPolygon(rings: GeoJSON.Position[][], tol: number): GeoJSON.Position[][] | null {
+  if (rings.length === 0 || ringBelowTolerance(rings[0], tol)) return null;
+  const out = [simplifyRing(rings[0], tol)];
+  for (let i = 1; i < rings.length; i++) {
+    if (!ringBelowTolerance(rings[i], tol)) out.push(simplifyRing(rings[i], tol));
+  }
+  return out;
+}
+
+/** Simplify every ring of a Polygon / MultiPolygon and drop the parts too
+ * small for the tolerance; other types pass through. A Polygon that
+ * vanishes becomes an empty MultiPolygon. */
 export function simplifyGeometry(geom: GeoJSON.Geometry, tol = SIMPLIFY_TOLERANCE_DEG): GeoJSON.Geometry {
   if (tol <= 0) return geom;
   if (geom.type === 'Polygon') {
-    return { type: 'Polygon', coordinates: geom.coordinates.map((r) => simplifyRing(r, tol)) };
+    const rings = simplifyPolygon(geom.coordinates, tol);
+    return rings ? { type: 'Polygon', coordinates: rings } : { type: 'MultiPolygon', coordinates: [] };
   }
   if (geom.type === 'MultiPolygon') {
-    return { type: 'MultiPolygon', coordinates: geom.coordinates.map((p) => p.map((r) => simplifyRing(r, tol))) };
+    const polys: GeoJSON.Position[][][] = [];
+    for (const p of geom.coordinates) {
+      const rings = simplifyPolygon(p, tol);
+      if (rings) polys.push(rings);
+    }
+    return { type: 'MultiPolygon', coordinates: polys };
   }
   return geom;
 }

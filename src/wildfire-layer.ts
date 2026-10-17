@@ -5,6 +5,7 @@ import { FIRE_PATH } from './marker-icon';
 import { localize } from './localize/localize';
 import { boundsCentreLngLat, geometryLngLatBounds, haversineKm, formatArea } from './geo-utils';
 import { sharedCanvasRenderer } from './shared-canvas-renderer';
+import { onMapQuiet } from './map-quiet';
 import { escapeHtml } from './string-utils';
 import { findInciwebPage, inciwebCandidates, inciwebUrl, knownInciwebPage } from './inciweb';
 import { mapsEqual } from './map-utils';
@@ -131,8 +132,7 @@ export class WildfireLayer {
   // or the layer tears down, so the browser doesn't keep downloading
   // payloads we've already decided to discard via the gen check.
   private _abortCtrl: AbortController | null = null;
-  private _zoomHandler: (() => void) | null = null;
-  private _moveHandler: (() => void) | null = null;
+  private _disposeQuiet: (() => void) | null = null;
 
   constructor(
     map: L.Map,
@@ -145,13 +145,14 @@ export class WildfireLayer {
   }
 
   start(): void {
-    // On zoomend, only re-render if at least one feature crossed the
-    // polygon-vs-icon threshold. This preserves any open popup when the
-    // user zooms (e.g. via double-tap) without crossing the threshold.
-    this._zoomHandler = () => this._render({ skipIfDecisionsUnchanged: true });
-    this._map.on('zoomend', this._zoomHandler);
-    this._moveHandler = () => this._showDetail();
-    this._map.on('moveend', this._moveHandler);
+    // After a view change, once the map has been still for a second (see
+    // map-quiet.ts): re-render only if a feature crossed the polygon-vs-icon
+    // threshold, which preserves any open popup when the user zooms (e.g.
+    // via double-tap) without crossing it; then fetch detail for the view.
+    this._disposeQuiet = onMapQuiet(this._map, () => {
+      this._render({ skipIfDecisionsUnchanged: true });
+      this._showDetail();
+    });
     void this._fetch();
   }
 
@@ -160,14 +161,8 @@ export class WildfireLayer {
     this._abortCtrl?.abort();   // cancel the HTTP requests too, not just the response handling
     this._abortCtrl = null;
     if (this._timer) { clearTimeout(this._timer); this._timer = null; }
-    if (this._zoomHandler) {
-      this._map.off('zoomend', this._zoomHandler);
-      this._zoomHandler = null;
-    }
-    if (this._moveHandler) {
-      this._map.off('moveend', this._moveHandler);
-      this._moveHandler = null;
-    }
+    this._disposeQuiet?.();
+    this._disposeQuiet = null;
     this._detailCtrl?.abort();
     this._detailCtrl = null;
     if (this._polygonLayer) { this._map.removeLayer(this._polygonLayer); this._polygonLayer = null; }

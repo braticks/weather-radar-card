@@ -1771,6 +1771,17 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
         --dwd-coverage-dim-color: rgba(0, 0, 0, 1);
         --dwd-coverage-outline-color: rgba(255, 0, 255, 1);
       }
+      /* Leaflet blends every tile with plus-lighter for a Chromium seam bug
+         (600120) and gives Safari an optimize-contrast hint. On WebKit either
+         stops an image being composited straight from its decoded bitmap, so
+         every tile got its own device-resolution backing store: 11.8 MB per
+         512 px radar tile at 3x, 730 MB for a 13-frame loop, and iOS killed
+         the page at its 2 GB limit on a pinch (Safari Web Inspector Layers
+         panel, 2026-10-16). Safari has no seam bug; Leaflet tags it. */
+      .leaflet-container.leaflet-safari img.leaflet-tile {
+        mix-blend-mode: normal;
+        image-rendering: auto;
+      }
       /* flex-mode is the default: ha-card fills its container vertically
          (sections-grid cell), with min-height set inline from the user's
          height config so a regular dashboard still renders at the

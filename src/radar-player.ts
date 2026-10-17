@@ -70,6 +70,15 @@ export function buildLoadOrder(frameCount: number, nowIndex: number): number[] {
 // read "loaded").
 export const FRAME_FETCH_WINDOW = 3;
 
+// During a pinch or an animated zoom Leaflet normally creates tiles for
+// each integer zoom the gesture crosses and prunes only when it ends: a
+// fast pinch across six levels held 557 tile images in 85 composited
+// containers for 13 frames at once (phone viewport, 2026-10-16), and that
+// gesture crashed Safari on an iPhone with every overlay off. With the
+// option off the frames keep scaling their current tiles and load the new
+// zoom once it settles, as Leaflet itself does with updateWhenIdle on mobile.
+export const ZOOM_GESTURE_OPTIONS = { updateWhenZooming: false } as const;
+
 /** Frame indices in playback order from the shown slot, then frames not loaded yet. */
 export function fetchWindowOrder(loadedSlots: number[], currentSlot: number, frameCount: number): number[] {
   const n = loadedSlots.length;
@@ -626,6 +635,8 @@ export class RadarPlayer {
   // (prev1 from earlier ticks) trust their own delayed-fade-out setup
   // from when they were the prev1 — we don't touch them again here.
   private _prev1Slot = -1;
+  // Pending visibility:hidden per frame container, armed when its fade-out starts.
+  private _hideTimers = new Map<HTMLElement, ReturnType<typeof setTimeout>>();
 
   // Web worker timer (used only for the periodic 5-min radar update)
   private _worker: Worker | null = null;
@@ -1560,11 +1571,41 @@ export class RadarPlayer {
       if (!el) continue;
       el.style.transition = 'none';
       el.style.opacity = (s === current) ? '1' : '0';
+      if (s === current) this._frameVisible(el); else this._frameHidden(el);
       // Reset any mid-transition translate so a paused-then-resumed
       // playback doesn't show the current frame still offset by the
       // outgoing slide of the previous tick.
       el.style.transform = '';
     }
+  }
+
+  // Frames outside the current crossfade are `visibility: hidden`, not only
+  // opacity 0: WebKit paints a layer at opacity 0 into a device-resolution
+  // buffer all the same (37.75 MB per frame container on a 3x phone, Safari
+  // Web Inspector Layers panel, 2026-10-16: 13 frames was the page's memory
+  // limit), but paints nothing for a hidden subtree. Layout stays, so the
+  // tiles still measure for the motion snapshots, and the tiles follow:
+  // Leaflet's .leaflet-tile-loaded is `visibility: inherit`.
+  private _frameVisible(el: HTMLElement): void {
+    const t = this._hideTimers.get(el);
+    if (t) { clearTimeout(t); this._hideTimers.delete(el); }
+    el.style.visibility = '';
+  }
+
+  /** Hide now, or once a fade-out of `afterMs` has finished. */
+  private _frameHidden(el: HTMLElement, afterMs = 0): void {
+    const t = this._hideTimers.get(el);
+    if (t) { clearTimeout(t); this._hideTimers.delete(el); }
+    if (afterMs <= 0) { el.style.visibility = 'hidden'; return; }
+    this._hideTimers.set(el, setTimeout(() => {
+      this._hideTimers.delete(el);
+      el.style.visibility = 'hidden';
+    }, afterMs));
+  }
+
+  private _clearHideTimers(): void {
+    for (const t of this._hideTimers.values()) clearTimeout(t);
+    this._hideTimers.clear();
   }
 
   /** Start (or restart) the frame loop, optionally jumping to a specific slot. */
@@ -1713,6 +1754,7 @@ export class RadarPlayer {
 
       if (s === slot) {
         // New: snap to 0 at the new highest z, then fade (or snap) in.
+        this._frameVisible(el);
         el.style.zIndex = String(newZ);
         el.style.transition = 'none';
         el.style.opacity = '0';
@@ -1748,12 +1790,15 @@ export class RadarPlayer {
         el.style.transition = `opacity ${fade}ms linear ${fadeOutDelay}ms${motionTransition}`;
         el.style.opacity = '0';
         if (motion) el.style.transform = `translate(${motion.dx}px, ${motion.dy}px)`;
+        // Out of the compositor once its fade-out has finished.
+        this._frameHidden(el, fadeOutDelay + fade + 50);
       } else if (!useChain) {
         // Snap mode / fade=0: every non-current slot snaps to 0
         // immediately so we never see two layers at opacity 1.
         el.style.transition = 'none';
         el.style.opacity = '0';
         el.style.transform = '';
+        this._frameHidden(el);
       }
       // useChain && older: don't touch. Their delayed fade-out from a
       // previous tick is either still finishing or already at 0.
@@ -2141,6 +2186,7 @@ export class RadarPlayer {
     // that no longer exist after a teardown + re-init.
     this._prev1Slot = -1;
     this._zCounter = 0;
+    this._clearHideTimers();
     // Reset motion-compensation state too. _snapshotGen++ invalidates
     // any LK results still in flight from the previous frame set.
     this._snapshotGen++;
@@ -2242,6 +2288,7 @@ export class RadarPlayer {
       tileSize,
       zoomOffset,
       maxNativeZoom: 8 + Math.max(0, -zoomOffset),
+      ...ZOOM_GESTURE_OPTIONS,
       rateLimiter: this._dwdLimiter,
       on429: () => this._onRateLimited(),
       on5xx: () => this._onServerError(),
@@ -2602,6 +2649,7 @@ export class RadarPlayer {
         // rendering is smooth past zoom 7 anyway; cap to keep the
         // upscaled appearance consistent with the legacy behaviour.
         maxNativeZoom: 7 + Math.max(0, -zoomOffset),
+        ...ZOOM_GESTURE_OPTIONS,
         rateLimiter: this._noaaLimiter,
         on429: () => this._onRateLimited(),
         on5xx: () => this._onServerError(),
@@ -2631,6 +2679,7 @@ export class RadarPlayer {
         zoomOffset,
         // DWD's 1 km grid supports zoom 8; bump for larger tiles.
         maxNativeZoom: 8 + Math.max(0, -zoomOffset),
+        ...ZOOM_GESTURE_OPTIONS,
         rateLimiter: this._dwdLimiter,
         on429: () => this._onRateLimited(),
         on5xx: () => this._onServerError(),
@@ -2655,6 +2704,7 @@ export class RadarPlayer {
       // RainViewer publishes tiles up to native zoom 7 at 256px;
       // higher native zoom available with bigger tiles.
       maxNativeZoom: 7 + Math.max(0, -zoomOffset),
+      ...ZOOM_GESTURE_OPTIONS,
       rateLimiter: this._rainviewerLimiter,
       on429: () => this._onRateLimited(),
       on5xx: () => this._onServerError(),
@@ -2846,7 +2896,7 @@ export class RadarPlayer {
       layer.addTo(this._map);
       this._setLayerZ(layer, fi + 1);
       const el = (layer as any).getContainer?.() as HTMLElement | undefined;
-      if (el) el.style.opacity = '0';
+      if (el) { el.style.opacity = '0'; el.style.visibility = 'hidden'; }
 
       const status = await layerSettled(layer);
       if (myGen !== this._frameGeneration) return;
@@ -3281,7 +3331,7 @@ export class RadarPlayer {
       const layer = this._createLayer(frame) as FetchWmsTileLayer;
       layer.addTo(this._map!);
       const el = (layer as any).getContainer?.() as HTMLElement | undefined;
-      if (el) el.style.opacity = '0';
+      if (el) { el.style.opacity = '0'; el.style.visibility = 'hidden'; }
       return { frame, layer };
     });
     this._forecastLoading = staged.map((s) => s.layer);
@@ -3332,6 +3382,7 @@ export class RadarPlayer {
         newEl.style.zIndex = oldEl?.style.zIndex ?? '';
         newEl.style.transform = oldEl?.style.transform ?? '';
         newEl.style.opacity = oldEl?.style.opacity ?? '0';
+        if (newEl.style.opacity === '0') this._frameHidden(newEl); else this._frameVisible(newEl);
       }
       this._radarImage[fi] = staged.layer;
       this._radarPaths[fi] = staged.frame;

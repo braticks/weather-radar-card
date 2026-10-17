@@ -40,11 +40,12 @@ function view(west: number, south: number, east: number, north: number): any {
   return { getWest: () => west, getSouth: () => south, getEast: () => east, getNorth: () => north };
 }
 
-/** A map whose padded view is the given box; size 0 means "not laid out yet". */
-function fakeMap(box: [number, number, number, number] | null): any {
+/** A map whose padded view is the given box; size 0 means "not laid out yet". Zoom 9 draws the stored outline. */
+function fakeMap(box: [number, number, number, number] | null, zoom = 9): any {
   return {
     on: vi.fn(),
     off: vi.fn(),
+    getZoom: () => zoom,
     getSize: () => (box ? { x: 600, y: 400 } : { x: 0, y: 0 }),
     getBounds: () => ({ pad: () => (box ? view(...box) : null) }),
     removeLayer: vi.fn(),
@@ -95,8 +96,8 @@ describe('viewport culling', () => {
     layer._render();
     expect(built).toHaveLength(1);
     expect(built[0].features.map((f) => f.id)).toEqual(['in', 'edge']);
-    expect(layer._renderDecisions.get('in')).toMatch(/\|v$/);
-    expect(layer._renderDecisions.get('out')).toMatch(/\|h$/);
+    expect(layer._renderDecisions.get('in')).toMatch(/\|v\|z9$/);
+    expect(layer._renderDecisions.get('out')).toMatch(/\|h\|z9$/);
   });
 
   it('a map without a size yet renders everything', () => {
@@ -118,8 +119,33 @@ describe('viewport culling', () => {
     layer._render();
     expect(built[0].features.map((f) => f.id)).toEqual(['near']);
     expect(built[0].features[0].geometry?.type).toBe('MultiPolygon');
-    expect(layer._renderDecisions.get('far')).toBe('Wind Advisory|Moderate|zones:1/1|h');
-    expect(layer._renderDecisions.get('pending')).toBe('Wind Advisory|Moderate|zones:0/1|v');
+    expect(layer._renderDecisions.get('far')).toBe('Wind Advisory|Moderate|zones:1/1|h|z9');
+    expect(layer._renderDecisions.get('pending')).toBe('Wind Advisory|Moderate|zones:0/1|v|z9');
+  });
+
+  it('draws coarser outlines at low zooms, memoised per zone and zoom, and redraws when the zoom level changes', () => {
+    const map = fakeMap([-130, 20, -60, 55], 3);
+    const layer = makeLayer(map);
+    // A ring with 2000 points around a 2-degree circle: fine at zoom 9, a few dozen points at zoom 3.
+    const ring: GeoJSON.Position[] = [];
+    for (let i = 0; i < 2000; i++) ring.push([-95 + 2 * Math.cos((2 * Math.PI * i) / 2000), 35 + 2 * Math.sin((2 * Math.PI * i) / 2000)]);
+    ring.push(ring[0]);
+    layer._cacheZone(ZONE('circle'), { type: 'Polygon', coordinates: [ring] });
+    const stored = layer._zoneCache.get(ZONE('circle')).coordinates[0].length;
+    layer._features = [{ type: 'Feature', id: 'a', properties: { event: 'Wind Advisory', severity: 'Moderate', affectedZones: [ZONE('circle')] }, geometry: null }];
+    layer._render();
+    const atZoom3 = (built[0].features[0].geometry as any).coordinates[0][0].length;
+    expect(atZoom3).toBeLessThan(stored / 5);
+    expect(layer._renderDecisions.get('a')).toMatch(/\|z3$/);
+    expect(layer._zoneLod.get(ZONE('circle')).size).toBe(1);
+    // Same view, same zoom: nothing rebuilt. Zoom 9: rebuilt with the stored outline.
+    layer._render({ skipIfDecisionsUnchanged: true });
+    expect(built).toHaveLength(1);
+    map.getZoom = () => 9;
+    layer._render({ skipIfDecisionsUnchanged: true });
+    expect(built).toHaveLength(2);
+    expect((built[1].features[0].geometry as any).coordinates[0][0].length).toBe(stored);
+    expect(layer._zoneLod.get(ZONE('circle')).size).toBe(1);   // zoom 9 needs no copy
   });
 
   it('a view change re-renders only when the visible set changes', () => {
@@ -155,14 +181,35 @@ describe('viewport culling', () => {
     expect(built).toHaveLength(2);
   });
 
-  it('start subscribes to view changes and clear unsubscribes', () => {
+  it('is idle while the map moves: no render from a hass tick, a refresh or zones until the quiet callback', () => {
+    const map = fakeMap([-100, 30, -90, 40]);
+    const layer = makeLayer(map);
+    layer._features = [polygonAt(-95, 35, 'in')];
+    layer._render();
+    expect(built).toHaveLength(1);
+    layer._onMapBusy();
+    // The zoom crosses a level mid-gesture and a hass tick lands: nothing is rebuilt.
+    map.getZoom = () => 5;
+    layer.updateHass({} as any);
+    layer._render({ skipIfDecisionsUnchanged: true });
+    layer._render();
+    expect(built).toHaveLength(1);
+    layer._onMapQuiet();
+    expect(built).toHaveLength(2);
+    expect(layer._renderDecisions.get('in')).toMatch(/\|z5$/);
+  });
+
+  it('start subscribes to view changes (quiet-gated) and resize; clear unsubscribes both', () => {
     const map = fakeMap([-100, 30, -90, 40]);
     const layer = makeLayer(map);
     global.fetch = vi.fn(() => new Promise(() => {})) as any;
     layer.start();
-    expect(map.on).toHaveBeenCalledWith('moveend zoomend resize', layer._onViewChange);
+    expect(map.on).toHaveBeenCalledWith('moveend zoomend', expect.any(Function));
+    expect(map.on).toHaveBeenCalledWith('movestart zoomstart move zoom', expect.any(Function));
+    expect(map.on).toHaveBeenCalledWith('resize', layer._onViewChange);
     layer.clear();
-    expect(map.off).toHaveBeenCalledWith('moveend zoomend resize', layer._onViewChange);
+    expect(map.off).toHaveBeenCalledWith('moveend zoomend', expect.any(Function));
+    expect(map.off).toHaveBeenCalledWith('resize', layer._onViewChange);
   });
 });
 

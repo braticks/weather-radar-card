@@ -513,10 +513,12 @@ describe('NwsAlertsLayer refresh with an unchanged alert set', () => {
     l._featureBounds = new Map();
     l._renderAfterPopup = false;
     l._lastStatusKey = '';
+    l._zoneLod = new Map();
     const world = { getWest: () => -180, getEast: () => 180, getSouth: () => -90, getNorth: () => 90 };
     l._map = {
       getCenter: () => ({ lat: 35, lng: -97 }), removeLayer: vi.fn(), getSize: () => ({ x: 800, y: 600 }),
-      getBounds: () => ({ pad: () => world }),
+      getBounds: () => ({ pad: () => world }), getZoom: () => 7,
+      on: vi.fn(),   // the shared canvas renderer subscribes to zoomstart/moveend
     };
     l._getConfig = () => ({ alerts_types: ['Tornado Warning'] });
     l._resolveZones = vi.fn(async () => {});
