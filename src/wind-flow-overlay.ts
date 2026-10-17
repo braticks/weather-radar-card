@@ -7,7 +7,8 @@
 // trivial and Canvas2D `stroke()` is plenty fast (~5ms/frame on integrated
 // graphics). WebGL would only matter at 50k+ particles, full-screen.
 import * as L from 'leaflet';
-import { windGridFetcher, sampleWindGridBilinear, type WindGrid } from './wind-grid-fetcher';
+import { windGridFetcher, sampleWindGridBilinearInto, type WindGrid } from './wind-grid-fetcher';
+import { webMercatorPixelToLatLng } from './mercator-pixel';
 import { getWindSourceCaps, DEFAULT_WIND_SOURCE, type WindSource } from './wind-source-caps';
 
 const ICON_GRID_DEG = 0.25;
@@ -456,8 +457,13 @@ export class WindFlowOverlay {
     }
   }
 
+  // Reused per sample: the tick must not keep the result (see _tick).
+  private _uv = { u: 0, v: 0 };
+  private _ll = { lat: 0, lng: 0 };
+
   private _interpolate(lat: number, lon: number): { u: number; v: number } {
-    return sampleWindGridBilinear(this._grid, lat, lon);
+    sampleWindGridBilinearInto(this._grid, lat, lon, this._uv);
+    return this._uv;
   }
 
   private _tick = (): void => {
@@ -499,6 +505,16 @@ export class WindFlowOverlay {
     // vanishes instantly because we no longer redraw those pixels.
     ctx.clearRect(0, 0, w, h);
 
+    // Container pixel -> lat/lng without Leaflet's per-call Point and
+    // LatLng objects (mercator-pixel.ts); the Leaflet path stays for a
+    // map on another CRS.
+    const offset = this._map.containerPointToLayerPoint(L.point(0, 0));
+    const origin = this._map.getPixelOrigin();
+    const ox = offset.x + origin.x;
+    const oy = offset.y + origin.y;
+    const scale = this._map.options.crs!.scale(this._map.getZoom());
+    const mercator = this._map.options.crs === L.CRS.EPSG3857;
+
     // Step 2: advance every particle. Single state — no separate dying
     // flag. When age reaches lifetime + FADE_OUT_FRAMES the particle
     // respawns at a random position with a wiped trail. The fade-out
@@ -530,7 +546,9 @@ export class WindFlowOverlay {
         continue;
       }
 
-      const ll = this._map.containerPointToLatLng(L.point(x, y));
+      const ll = mercator
+        ? webMercatorPixelToLatLng((x + ox) / scale, (y + oy) / scale, this._ll)
+        : this._map.containerPointToLatLng(L.point(x, y));
       const wind = this._interpolate(ll.lat, ll.lng);
       const nx = x + wind.u * stepPxPerMps;
       const ny = y - wind.v * stepPxPerMps; // pixel y goes down; v is northward
