@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Wind streamlines made the page stall every ten seconds.** Each animation frame converted every particle's position with Leaflet's point and coordinate objects and took a fresh wind sample for it: about 300,000 short-lived objects a second, and a full garbage collection every ten seconds that took half a second on an iPhone while the alerts layer's data was live. The conversion and the sample now reuse the same objects.
+
 ## [4.0.0-alpha3] - 2026-10-17
 
 > **Alpha pre-release of 4.0.** Fixes for the hazard overlays and for Safari on an iPhone, on 4.0.0-alpha2. 3.13.0 is the current stable release and is included. The entries below are what changed since 4.0.0-alpha2.

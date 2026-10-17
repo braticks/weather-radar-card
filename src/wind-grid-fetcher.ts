@@ -638,7 +638,24 @@ export function sampleWindGridBilinear(
   lat: number,
   lon: number,
 ): { u: number; v: number } {
-  if (grid.rows === 0 || grid.cols === 0) return { u: 0, v: 0 };
+  const out = { u: 0, v: 0 };
+  sampleWindGridBilinearInto(grid, lat, lon, out);
+  return out;
+}
+
+/** sampleWindGridBilinear writing into `out`: the streamline tick samples
+ * every particle every frame (3,500 x 15 fps), and one object per sample
+ * fed a full garbage collection every ten seconds that took 543 ms on an
+ * iPhone with the alerts layer's heap live (2026-10-17). */
+export function sampleWindGridBilinearInto(
+  grid: WindGrid,
+  lat: number,
+  lon: number,
+  out: { u: number; v: number },
+): void {
+  out.u = 0;
+  out.v = 0;
+  if (grid.rows === 0 || grid.cols === 0) return;
   const wlon = wrapLon(lon);
   // Convert (lat, lon) to fractional row/col where (0, 0) is the SW cell centre.
   const fr = (lat - grid.latMin) / grid.step - 0.5;
@@ -646,9 +663,7 @@ export function sampleWindGridBilinear(
   // Clamp the index pair so points just inside the bbox edge still hit
   // the nearest cell rather than degenerating to (0, 0). Out-of-bbox is
   // a deliberate "no data".
-  if (fr < -0.5 || fr > grid.rows - 0.5 || fc < -0.5 || fc > grid.cols - 0.5) {
-    return { u: 0, v: 0 };
-  }
+  if (fr < -0.5 || fr > grid.rows - 0.5 || fc < -0.5 || fc > grid.cols - 0.5) return;
   // The in-range check bounds floor(fr) to [-1, rows - 1]. In the last half
   // cell r0 is the last row and r1 clamps onto it, so both corners are the
   // same cell. That also covers a one-cell axis (a valid 1-wide grid, e.g. a
@@ -663,9 +678,8 @@ export function sampleWindGridBilinear(
   const b = grid.cells[r0][c1];
   const c = grid.cells[r1][c0];
   const d = grid.cells[r1][c1];
-  const u = (1 - dr) * ((1 - dc) * a.u + dc * b.u) + dr * ((1 - dc) * c.u + dc * d.u);
-  const v = (1 - dr) * ((1 - dc) * a.v + dc * b.v) + dr * ((1 - dc) * c.v + dc * d.v);
-  return { u, v };
+  out.u = (1 - dr) * ((1 - dc) * a.u + dc * b.u) + dr * ((1 - dc) * c.u + dc * d.u);
+  out.v = (1 - dr) * ((1 - dc) * a.v + dc * b.v) + dr * ((1 - dc) * c.v + dc * d.v);
 }
 
 // ── coalescing fetcher (Phase 2) ───────────────────────────────────────────
