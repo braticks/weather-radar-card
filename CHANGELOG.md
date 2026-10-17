@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.0-alpha3] - 2026-10-17
+
+> **Alpha pre-release of 4.0.** Fixes for the hazard overlays and for Safari on an iPhone, on 4.0.0-alpha2. 3.13.0 is the current stable release and is included. The entries below are what changed since 4.0.0-alpha2.
+
 ### Fixed
 
 - **Mobile browser crash on a preset switch with NWS alerts on.** With every alert category on, the alerts layer held 3 million polygon vertices, mostly marine advisories, and re-projected all of them on each zoom: a 150 to 200 MB memory spike per switch. Zone outlines are now simplified to about 220 m before they are cached (six times fewer vertices, invisible below zoom 11), drawn at half a pixel of detail for the current zoom (about ten times fewer again at zoom 3), and only the alerts that touch the view are built as map polygons. A view change while an alert popup is open waits for the popup to close.
