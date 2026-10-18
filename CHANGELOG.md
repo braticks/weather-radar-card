@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [4.0.0-alpha4] - 2026-10-17
+
+> **Alpha pre-release of 4.0.** Fixes for the NWS alerts layer and the wind streamlines, on 4.0.0-alpha3. 3.13.0 is the current stable release and is included. The entries below are what changed since 4.0.0-alpha3.
+
 ### Fixed
 
 - **Alert outlines at low zooms kept detail they could not show.** When simplifying a zone outline would leave fewer than four points, the card kept the whole outline instead. So mid-sized zones kept every point at coarse zooms, and zoom 3 drew more points than zoom 4. Such an outline now keeps four points. Outlines are also drawn with one pixel of detail at the current zoom instead of half a pixel. With every alert category on, the points drawn at zoom 5 went from 31,571 to 14,741, and from 183,247 to 87,510 at zoom 8.
