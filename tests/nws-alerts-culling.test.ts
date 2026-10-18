@@ -5,8 +5,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const { geoJSON, built } = vi.hoisted(() => {
-  const built: Array<{ features: GeoJSON.Feature[]; layer: any }> = [];
-  const geoJSON = vi.fn((features: GeoJSON.Feature[]) => {
+  const built: Array<{ features: GeoJSON.Feature[]; layer: any; options: any }> = [];
+  const geoJSON = vi.fn((features: GeoJSON.Feature[], options?: any) => {
     const layer = {
       features,
       addTo: vi.fn(),
@@ -14,7 +14,7 @@ const { geoJSON, built } = vi.hoisted(() => {
       getLayers: () => features.map(() => ({ isPopupOpen: () => layer.popupOpen })),
       popupOpen: false,
     };
-    built.push({ features, layer });
+    built.push({ features, layer, options });
     return layer;
   });
   return { geoJSON, built };
@@ -30,7 +30,7 @@ vi.mock('leaflet', () => {
   return { Layer, TileLayer, Control, geoJSON, canvas, default: { Layer, TileLayer, Control, geoJSON, canvas } };
 });
 
-import { NwsAlertsLayer, boundsIntersect } from '../src/nws-alerts-layer';
+import { NwsAlertsLayer, boundsIntersect, alertOverAt, alertInForceAt } from '../src/nws-alerts-layer';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -138,14 +138,14 @@ describe('viewport culling', () => {
     expect(atZoom3).toBeLessThan(stored / 5);
     expect(layer._renderDecisions.get('a')).toMatch(/\|z3$/);
     expect(layer._zoneLod.get(ZONE('circle')).size).toBe(1);
-    // Same view, same zoom: nothing rebuilt. Zoom 9: rebuilt with the stored outline.
+    // Same view, same zoom: nothing rebuilt. Zoom 10: rebuilt with the stored outline.
     layer._render({ skipIfDecisionsUnchanged: true });
     expect(built).toHaveLength(1);
-    map.getZoom = () => 9;
+    map.getZoom = () => 10;
     layer._render({ skipIfDecisionsUnchanged: true });
     expect(built).toHaveLength(2);
     expect((built[1].features[0].geometry as any).coordinates[0][0].length).toBe(stored);
-    expect(layer._zoneLod.get(ZONE('circle')).size).toBe(1);   // zoom 9 needs no copy
+    expect(layer._zoneLod.get(ZONE('circle')).size).toBe(1);   // zoom 10 needs no copy
   });
 
   it('a view change re-renders only when the visible set changes', () => {
@@ -164,7 +164,7 @@ describe('viewport culling', () => {
     expect(built[1].features.map((f) => f.id)).toEqual(['out']);
   });
 
-  it('defers the re-render while a popup is open, and runs it on popupclose', () => {
+  it('defers the re-render while a popup is open, and runs it on popupclose', async () => {
     const map = fakeMap([-100, 30, -90, 40]);
     const layer = makeLayer(map);
     layer._features = [polygonAt(-95, 35, 'in'), polygonAt(-70, 35, 'out')];
@@ -173,12 +173,51 @@ describe('viewport culling', () => {
     map.getBounds = () => ({ pad: () => view(-80, 30, -60, 40) });
     layer._onViewChange();
     expect(built).toHaveLength(1);
-    built[0].layer.popupOpen = false;
+    // Leaflet's order: popupclose fires while the popup is still on the map.
     layer._onPopupClose();
+    built[0].layer.popupOpen = false;
+    await Promise.resolve();
     expect(built).toHaveLength(2);
     // A popupclose with nothing pending is a no-op.
     layer._onPopupClose();
+    await Promise.resolve();
     expect(built).toHaveLength(2);
+  });
+
+  it('a popupclose caused by another alert popup opening leaves the render deferred', async () => {
+    const map = fakeMap([-100, 30, -90, 40]);
+    const layer = makeLayer(map);
+    layer._features = [polygonAt(-95, 35, 'in'), polygonAt(-70, 35, 'out')];
+    layer._render();
+    built[0].layer.popupOpen = true;
+    map.getBounds = () => ({ pad: () => view(-80, 30, -60, 40) });
+    layer._onViewChange();
+    layer._onPopupClose();           // the first popup closes as the second opens
+    await Promise.resolve();
+    expect(built).toHaveLength(1);
+    expect(layer._renderAfterPopup).toBe(true);
+  });
+
+  it('a hass tick or zones arriving while a popup is open wait for popupclose too, not only view changes', async () => {
+    const map = fakeMap([-100, 30, -90, 40]);
+    const layer = makeLayer(map);
+    layer._features = [polygonAt(-95, 35, 'in'), polygonAt(-70, 35, 'out')];
+    layer._render();
+    built[0].layer.popupOpen = true;
+    // A tall popup's auto-pan moved the view; the quiet callback deferred.
+    map.getBounds = () => ({ pad: () => view(-80, 30, -60, 40) });
+    layer._onMapBusy();
+    layer._onMapQuiet();
+    expect(built).toHaveLength(1);
+    // The next hass push and a zone batch's render: still nothing rebuilt.
+    layer.updateHass({} as any);
+    layer._render({ skipIfDecisionsUnchanged: true });
+    expect(built).toHaveLength(1);
+    layer._onPopupClose();
+    built[0].layer.popupOpen = false;
+    await Promise.resolve();
+    expect(built).toHaveLength(2);
+    expect(built[1].features.map((f) => f.id)).toEqual(['out']);
   });
 
   it('is idle while the map moves: no render from a hass tick, a refresh or zones until the quiet callback', () => {
@@ -210,6 +249,173 @@ describe('viewport culling', () => {
     layer.clear();
     expect(map.off).toHaveBeenCalledWith('moveend zoomend', expect.any(Function));
     expect(map.off).toHaveBeenCalledWith('resize', layer._onViewChange);
+  });
+});
+
+describe('each zone drawn once per event', () => {
+  beforeEach(() => { built.length = 0; geoJSON.mockClear(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  const sq = (lng: number): GeoJSON.Polygon => ({ type: 'Polygon', coordinates: [[[lng, 34], [lng + 0.5, 34], [lng + 0.5, 34.5], [lng, 34.5], [lng, 34]]] });
+  const zoneAlert = (id: string, event: string, severity: string, zones: string[], headline = id): GeoJSON.Feature =>
+    ({ type: 'Feature', id, properties: { event, severity, headline, affectedZones: zones }, geometry: null } as unknown as GeoJSON.Feature);
+  /** The zone squares a built feature draws, by their west edge. */
+  const drawn = (f: GeoJSON.Feature): number[] => (f.geometry as GeoJSON.MultiPolygon).coordinates.map((poly) => poly[0][0][0]).sort((a, b) => a - b);
+  /** The popup HTML Leaflet would bind for a built feature. */
+  const popupOf = (b: { options: any }, f: GeoJSON.Feature): string => {
+    let html = '';
+    b.options.onEachFeature(f, { bindPopup: (h: string) => { html = h; } });
+    return html;
+  };
+
+  function layerWithZones(): any {
+    const layer = makeLayer(fakeMap([-100, 30, -90, 40]));
+    for (const [id, lng] of [['A', -99], ['S', -98], ['B', -97], ['C', -96]] as const) layer._cacheZone(ZONE(id), sq(lng));
+    return layer;
+  }
+
+  it('two alerts of one event sharing a zone: the shared zone is one feature whose popup lists both, most severe first', () => {
+    const layer = layerWithZones();
+    // _features is paint order (severity ascending): 'late' paints over 'early'.
+    layer._features = [
+      zoneAlert('early', 'Small Craft Advisory', 'Minor', [ZONE('A'), ZONE('S')], 'until 1 PM'),
+      zoneAlert('late', 'Small Craft Advisory', 'Moderate', [ZONE('S'), ZONE('B')], 'until 5 PM'),
+    ];
+    layer._render();
+    const fs = built[0].features;
+    expect(fs.map((f) => f.id)).toEqual(['early', 'early+late', 'late']);
+    expect(fs.map(drawn)).toEqual([[-99], [-98], [-97]]);
+    const shared = popupOf(built[0], fs[1]);
+    expect(shared.indexOf('until 5 PM')).toBeGreaterThan(-1);
+    expect(shared.indexOf('until 5 PM')).toBeLessThan(shared.indexOf('until 1 PM'));
+    expect(popupOf(built[0], fs[0])).not.toContain('until 5 PM');
+  });
+
+  it('alerts of different events on one zone are each drawn', () => {
+    const layer = layerWithZones();
+    layer._features = [
+      zoneAlert('wind', 'Wind Advisory', 'Moderate', [ZONE('S')]),
+      zoneAlert('gale', 'Gale Warning', 'Severe', [ZONE('S'), ZONE('C')]),
+    ];
+    layer._render();
+    expect(built[0].features.map((f) => [f.id, drawn(f)])).toEqual([['wind', [-98]], ['gale', [-98, -96]]]);
+  });
+
+  it('one alert per event builds the same single feature as before, with every cached zone', () => {
+    const layer = layerWithZones();
+    layer._features = [zoneAlert('only', 'Flood Watch', 'Moderate', [ZONE('A'), ZONE('S'), ZONE('B'), ZONE('missing')])];
+    layer._render();
+    expect(built[0].features.map((f) => [f.id, drawn(f)])).toEqual([['only', [-99, -98, -97]]]);
+    expect(layer._renderDecisions.get('only')).toBe('Flood Watch|Moderate|zones:3/4|v|z9');
+  });
+
+  it('a later-issued alert of the event that is in force replaces the earlier one on the zones it covers', () => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-17T14:00:00Z'));
+    const layer = layerWithZones();
+    const older = zoneAlert('older', 'Small Craft Advisory', 'Minor', [ZONE('A'), ZONE('S')], 'issued 9:36 PM');
+    const newer = zoneAlert('newer', 'Small Craft Advisory', 'Minor', [ZONE('S'), ZONE('B')], 'issued 3:43 AM');
+    Object.assign(older.properties!, { sent: '2026-10-17T05:36:00Z', effective: '2026-10-17T05:36:00Z', onset: '2026-10-17T05:00:00Z' });
+    Object.assign(newer.properties!, { sent: '2026-10-17T11:43:00Z', effective: '2026-10-17T12:43:00Z', onset: '2026-10-17T11:00:00Z' });
+    layer._features = [older, newer];
+    layer._render();
+    // S belongs to the newer alert only; the older keeps A, the zone nobody replaced.
+    expect(built[0].features.map((f) => [f.id, drawn(f)])).toEqual([['older', [-99]], ['newer', [-98, -97]]]);
+    expect(popupOf(built[0], built[0].features[1])).not.toContain('issued 9:36 PM');
+    vi.useRealTimers();
+  });
+
+  it('a later alert not yet in force is listed with the current one until it starts, then replaces it', () => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-17T14:00:00Z'));
+    const layer = layerWithZones();
+    const current = zoneAlert('current', 'Gale Warning', 'Moderate', [ZONE('S')], 'until tonight');
+    const next = zoneAlert('next', 'Gale Warning', 'Moderate', [ZONE('S')], 'from 6 PM');
+    Object.assign(current.properties!, { sent: '2026-10-17T05:00:00Z', effective: '2026-10-17T05:00:00Z' });
+    Object.assign(next.properties!, { sent: '2026-10-17T13:00:00Z', effective: '2026-10-17T13:00:00Z', onset: '2026-10-18T01:00:00Z' });
+    layer._features = [current, next];
+    layer._render();
+    expect(built[0].features.map((f) => f.id)).toEqual(['current+next']);
+    expect(layer._renderDecisions.get('next')).toMatch(/\|p$/);
+    vi.setSystemTime(new Date('2026-10-18T01:00:01Z'));
+    layer._render({ skipIfDecisionsUnchanged: true });
+    expect(built).toHaveLength(2);
+    expect(built[1].features.map((f) => f.id)).toEqual(['next']);
+    vi.useRealTimers();
+  });
+
+  it('alertInForceAt is the later of effective and onset, else sent', () => {
+    expect(alertInForceAt({ effective: '2026-10-17T12:43:00Z', onset: '2026-10-17T11:00:00Z' } as any)).toBe(Date.parse('2026-10-17T12:43:00Z'));
+    expect(alertInForceAt({ effective: '2026-10-17T13:00:00Z', onset: '2026-10-18T01:00:00Z' } as any)).toBe(Date.parse('2026-10-18T01:00:00Z'));
+    expect(alertInForceAt({ sent: '2026-10-17T05:00:00Z' } as any)).toBe(Date.parse('2026-10-17T05:00:00Z'));
+    expect(alertInForceAt({} as any)).toBe(-Infinity);
+  });
+
+  it('groups keep paint order: a group sits where its most severe alert does, between other events', () => {
+    const layer = layerWithZones();
+    layer._features = [
+      zoneAlert('sca1', 'Small Craft Advisory', 'Minor', [ZONE('A'), ZONE('S')]),
+      zoneAlert('flood', 'Flood Watch', 'Moderate', [ZONE('C')]),
+      zoneAlert('sca2', 'Small Craft Advisory', 'Severe', [ZONE('S')]),
+    ];
+    layer._render();
+    expect(built[0].features.map((f) => f.id)).toEqual(['sca1', 'flood', 'sca1+sca2']);
+  });
+
+  it('a hass tick with nothing changed builds nothing, even with groups', () => {
+    const layer = layerWithZones();
+    layer._features = [
+      zoneAlert('early', 'Small Craft Advisory', 'Minor', [ZONE('A'), ZONE('S')]),
+      zoneAlert('late', 'Small Craft Advisory', 'Moderate', [ZONE('S'), ZONE('B')]),
+    ];
+    layer._render();
+    layer._render({ skipIfDecisionsUnchanged: true });
+    expect(built).toHaveLength(1);
+  });
+});
+
+describe('alerts past their expiry are suppressed', () => {
+  beforeEach(() => { built.length = 0; geoJSON.mockClear(); });
+  afterEach(() => { vi.useRealTimers(); });
+
+  const timed = (id: string, expires?: string, ends?: string): GeoJSON.Feature => {
+    const f = polygonAt(-95, 35, id);
+    Object.assign(f.properties!, { expires, ends });
+    return f;
+  };
+
+  it('alertOverAt is the earlier of expires and ends, Infinity with neither', () => {
+    expect(alertOverAt({ expires: '2026-10-17T10:00:00Z', ends: '2026-10-18T10:00:00Z' } as any)).toBe(Date.parse('2026-10-17T10:00:00Z'));
+    expect(alertOverAt({ expires: '2026-10-17T10:00:00Z', ends: '2026-10-16T10:00:00Z' } as any)).toBe(Date.parse('2026-10-16T10:00:00Z'));
+    expect(alertOverAt({ ends: '2026-10-16T10:00:00Z' } as any)).toBe(Date.parse('2026-10-16T10:00:00Z'));
+    expect(alertOverAt({} as any)).toBe(Infinity);
+    expect(alertOverAt({ expires: 'not a date' } as any)).toBe(Infinity);
+  });
+
+  it('the filter drops an alert past expires even though its hazard ends later', () => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-17T12:00:00Z'));
+    const layer = makeLayer(fakeMap([-100, 30, -90, 40]));
+    const kept = layer._filter([
+      timed('stale', '2026-10-16T00:00:00Z', '2026-10-20T00:00:00Z'),
+      timed('ended', '2026-10-18T00:00:00Z', '2026-10-17T11:00:00Z'),
+      timed('live', '2026-10-17T13:00:00Z', '2026-10-20T00:00:00Z'),
+      timed('untimed'),
+    ].map((f) => { (f.properties as any).event = 'Tornado Warning'; return f; }));
+    expect(kept.map((f: GeoJSON.Feature) => f.id)).toEqual(['live', 'untimed']);
+  });
+
+  it('an alert that expires after the last fetch leaves at the next render, and its zones are not queued', () => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-17T12:00:00Z'));
+    const layer = makeLayer(fakeMap([-100, 30, -90, 40]));
+    layer._features = [timed('a', '2026-10-17T12:30:00Z'), timed('b', '2026-10-17T18:00:00Z')];
+    layer._features.push({ type: 'Feature', id: 'z', geometry: null, properties: { event: 'Wind Advisory', severity: 'Moderate', expires: '2026-10-17T12:30:00Z', affectedZones: [ZONE('Q')] } });
+    layer._render();
+    expect(built[0].features.map((f) => f.id)).toEqual(['a', 'b']);
+    expect(layer._zoneQueue()).toEqual([ZONE('Q')]);
+    vi.setSystemTime(new Date('2026-10-17T12:31:00Z'));
+    layer._render({ skipIfDecisionsUnchanged: true });
+    expect(built).toHaveLength(2);
+    expect(built[1].features.map((f) => f.id)).toEqual(['b']);
+    expect(layer._renderDecisions.has('a')).toBe(false);
+    expect(layer._zoneQueue()).toEqual([]);
   });
 });
 
