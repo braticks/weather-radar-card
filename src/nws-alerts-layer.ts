@@ -10,13 +10,22 @@ import { centroidLngLat, haversineKm, geometryLngLatBounds } from './geo-utils';
 import { sharedCanvasRenderer } from './shared-canvas-renderer';
 import { onMapQuiet } from './map-quiet';
 import {
-  readZone, writeZone, sweepZones, defaultZoneKV, simplifyGeometry, normalizeZoneGeometry,
-  simplifyToleranceForZoom, SIMPLIFY_TOLERANCE_DEG,
+  readZoneEntry, writeZone, sweepZones, defaultZoneKV, simplifyGeometry, normalizeZoneGeometry,
+  simplifyToleranceForZoom, SIMPLIFY_TOLERANCE_DEG, type ZoneKV,
 } from './zone-store';
 
 // Cache entry for a zone with no drawable shape: contributes nothing to
 // _geometryFromZones and has no bounds, but counts as resolved.
 const NO_SHAPE: GeoJSON.MultiPolygon = { type: 'MultiPolygon', coordinates: [] };
+
+// Resolves in idle time where the browser offers it (Safari may not).
+function idle(): Promise<void> {
+  return new Promise((resolve) => {
+    const ric = (globalThis as { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number }).requestIdleCallback;
+    if (ric) ric(() => resolve(), { timeout: 2000 });
+    else setTimeout(resolve, 250);
+  });
+}
 import { escapeHtml, truncate } from './string-utils';
 import { mapsEqual } from './map-utils';
 
@@ -45,6 +54,9 @@ const DEFAULT_REFRESH_EMPTY_MS = 5 * 60 * 1000;
 // restore both.
 const ZONE_POOL_SIZE = 24;
 const ZONE_POOL_MIN = 4;
+// Stored zones of an older ZONE_FORMAT are rewritten this many at a time,
+// in idle time after a zone batch, never while the map moves.
+const WRITE_BACK_BATCH = 8;
 const ZONE_BACKOFF_MIN_MS = 5_000;
 const ZONE_BACKOFF_MAX_MS = 5 * 60_000;
 const DEFAULT_FILL_OPACITY = 0.25;
@@ -72,7 +84,9 @@ interface AlertProps {
   severity?: Severity;
   certainty?: string;
   urgency?: string;
+  sent?: string;
   effective?: string;
+  onset?: string;
   expires?: string;
   ends?: string;
   headline?: string;
@@ -174,6 +188,12 @@ export class NwsAlertsLayer {
   // True from movestart/zoomstart until the map has been still for a second.
   private _mapBusy = false;
   private _quietWaiters: Array<() => void> = [];
+  private _kv: ZoneKV = defaultZoneKV();
+  private _timesCache = new WeakMap<GeoJSON.Feature, { over: number; inForce: number; sent: number }>();
+  // Cached zones read from an older-format record, to write back with the
+  // record's own time so the TTL is unchanged (see ZONE_FORMAT).
+  private _writeBack: Array<{ url: string; ts: number }> = [];
+  private _writeBackRunning = false;
 
   constructor(
     map: L.Map,
@@ -191,7 +211,7 @@ export class NwsAlertsLayer {
     // Prune expired/over-cap IndexedDB zones and purge the legacy
     // localStorage caches once per layer start. Fire-and-forget — the
     // sweep never blocks rendering and its failures are swallowed.
-    void sweepZones(defaultZoneKV(), Date.now());
+    void sweepZones(this._kv, Date.now());
     // While the map moves the layer is idle: no render from any source (a
     // hass tick, a refresh, zones arriving) and no zone request starts.
     // Everything resumes once the map has been still for a second (see
@@ -234,6 +254,7 @@ export class NwsAlertsLayer {
     this._map.off('movestart zoomstart', this._onMapBusy);
     this._map.off('resize', this._onViewChange);
     this._mapBusy = false;
+    this._writeBack = [];
     this._releaseQuietWaiters();
     this._setStatus(null);
   }
@@ -424,6 +445,45 @@ export class NwsAlertsLayer {
     // actually arrived will see their decision strings flip, so this is
     // a no-op for any feature whose render state is stable.
     this._render({ skipIfDecisionsUnchanged: true });
+    void this._drainWriteBack();
+  }
+
+  // Rewrite older-format stored zones with the cached (current) geometry, a
+  // few per idle slice. Not during a zone batch: the next batch's end
+  // starts it again. Not while the map moves.
+  private async _drainWriteBack(): Promise<void> {
+    if (this._writeBackRunning) return;
+    this._writeBackRunning = true;
+    try {
+      while (this._writeBack.length > 0 && !this._zoneBatchRunning) {
+        await idle();
+        if (this._mapBusy) await this._untilQuiet();
+        if (this._zoneBatchRunning) break;
+        for (const { url, ts } of this._writeBack.splice(0, WRITE_BACK_BATCH)) {
+          const geom = this._zoneCache.get(url);
+          if (geom && geom !== NO_SHAPE) await writeZone(this._kv, url, geom, ts);
+        }
+      }
+    } finally {
+      this._writeBackRunning = false;
+    }
+  }
+
+  // An alert's times, parsed once per feature object (renders run on hass
+  // ticks): over (alertOverAt), in force (alertInForceAt) and sent.
+  private _times(f: GeoJSON.Feature): { over: number; inForce: number; sent: number } {
+    let t = this._timesCache.get(f);
+    if (!t) {
+      const p = f.properties as AlertProps | null;
+      const sent = p?.sent ? Date.parse(p.sent) : NaN;
+      t = { over: alertOverAt(p), inForce: alertInForceAt(p), sent: Number.isNaN(sent) ? -Infinity : sent };
+      this._timesCache.set(f, t);
+    }
+    return t;
+  }
+
+  private _overAt(f: GeoJSON.Feature): number {
+    return this._times(f).over;
   }
 
   // Zones still to fetch, most severe alert first and alerts in view before
@@ -432,9 +492,11 @@ export class NwsAlertsLayer {
     const first: string[] = [];
     const later: string[] = [];
     const seen = new Set<string>();
+    const now = Date.now();
     for (let i = this._features.length - 1; i >= 0; i--) {
       const f = this._features[i];
       if (f.geometry) continue;   // has its own geometry; no zones needed
+      if (this._overAt(f) <= now) continue;
       const hidden = this._renderDecisions.get(featureKey(f))?.endsWith('|h') === true;
       for (const url of (f.properties as AlertProps | null)?.affectedZones ?? []) {
         if (seen.has(url) || this._zoneCache.has(url) || this._zoneFetches.has(url)) continue;
@@ -470,9 +532,10 @@ export class NwsAlertsLayer {
       // round-trip per zone for users who've previously viewed alerts in
       // the same area. First session pays the network cost; subsequent
       // sessions read from disk.
-      const cached = await readZone(defaultZoneKV(), url, Date.now());
+      const cached = await readZoneEntry(this._kv, url, Date.now());
       if (cached) {
-        this._cacheZone(url, cached);
+        this._cacheZone(url, cached.geom);
+        if (!cached.current) this._writeBack.push({ url, ts: cached.ts });
         return;
       }
       const myGen = this._gen;
@@ -491,7 +554,7 @@ export class NwsAlertsLayer {
         // next request to the disk (slow on a phone) and, in tests, to
         // thread-pool time that fake timers do not advance (CI, 2026-10-17).
         // writeZone never rejects.
-        void writeZone(defaultZoneKV(), url, stored, Date.now());
+        void writeZone(this._kv, url, stored, Date.now());
       } else {
         // No shape (administrative entries): remember that for the session
         // so the zone is not requested again every refresh, but don't
@@ -525,6 +588,7 @@ export class NwsAlertsLayer {
     const explicitTypes = cfg.alerts_types && cfg.alerts_types.length > 0
       ? new Set(cfg.alerts_types) : null;
     const activeCategories = getActiveAlertCategories(cfg.alerts_categories);
+    const now = Date.now();
 
     return all.filter((f) => {
       // Keep both polygon-bearing and zone-only alerts. Zone-only ones are
@@ -533,6 +597,9 @@ export class NwsAlertsLayer {
       const props = f.properties as AlertProps | null;
       const hasZones = (props?.affectedZones?.length ?? 0) > 0;
       if (!f.geometry && !hasZones) return false;
+
+      // Past its expiry: alerts/active still lists it (see alertOverAt).
+      if (alertOverAt(props) <= now) return false;
 
       // Severity floor
       const sev = (props?.severity ?? 'Unknown') as Severity;
@@ -605,6 +672,15 @@ export class NwsAlertsLayer {
     // Not while the map moves: the quiet callback renders, and the
     // decision diff finds whatever changed meanwhile.
     if (this._mapBusy) return;
+    // Not while an alert popup is open, from any caller: a rebuild removes
+    // the layer and its popup. Only view changes waited; after a tall
+    // popup's auto-pan the next hass tick saw 21 alerts change visibility
+    // and closed the popup about a second after it opened (2026-10-17).
+    // popupclose runs the deferred render.
+    if (this._popupOpen()) {
+      this._renderAfterPopup = true;
+      return;
+    }
     try {
       this._renderInner(opts);
     } catch (err) {
@@ -636,13 +712,21 @@ export class NwsAlertsLayer {
     const zoom = this._map.getZoom();
     const lod = Math.round(zoom);
     const tol = simplifyToleranceForZoom(zoom);
-    const renderable: GeoJSON.Feature[] = [];
     const newDecisions = new Map<string, string>();
-    for (const f of this._features) {
+    // Visible alerts to build, by index in _features (paint order): inline
+    // polygons one by one, zone alerts grouped by event (see below).
+    const inline: number[] = [];
+    const byEvent = new Map<string, number[]>();
+    const now = Date.now();
+    for (let fi = 0; fi < this._features.length; fi++) {
+      const f = this._features[fi];
       const key = featureKey(f);
       const props = f.properties as AlertProps | null;
+      // Expired since the last fetch, which can fail for minutes: gone at
+      // the next render (no decision, so the layer rebuilds without it).
+      if (this._overAt(f) <= now) continue;
 
-      let geom: GeoJSON.Geometry | null = f.geometry ?? null;
+      const geom: GeoJSON.Geometry | null = f.geometry ?? null;
       let bounds: LngLatBounds | null = null;
       let zonesLoaded = 0;
       let zonesTotal = 0;
@@ -663,27 +747,96 @@ export class NwsAlertsLayer {
       // view. When more zones arrive the count rises, the decision flips,
       // and we re-render.
       const geomTag = f.geometry ? 'polygon' : `zones:${zonesLoaded}/${zonesTotal}`;
-      newDecisions.set(key, `${props?.event ?? ''}|${props?.severity ?? ''}|${geomTag}|${visible ? 'v' : 'h'}|z${lod}`);
+      // `|p` while the alert is not in force yet: replacement on a zone
+      // (below) depends on it, so the switch to in force must rebuild.
+      const pending = this._times(f).inForce > now ? '|p' : '';
+      newDecisions.set(key, `${props?.event ?? ''}|${props?.severity ?? ''}|${geomTag}|${visible ? 'v' : 'h'}|z${lod}${pending}`);
 
       if (!visible) continue;
-      if (geom) geom = simplifyGeometry(geom, tol);   // inline storm polygons: small, simplified per render
-      else if (zonesLoaded > 0) geom = this._geometryFromZones(zones, zoom);
-      if (!geom) continue;   // zone-only with nothing in cache yet — skip this render
-
-      // Push a feature carrying the derived geometry; preserve id/properties
-      // so the popup picks up the original alert metadata.
-      renderable.push({
-        type: 'Feature',
-        id: f.id,
-        properties: f.properties,
-        geometry: geom,
-      });
+      if (geom) inline.push(fi);
+      else if (zonesLoaded > 0) {
+        const event = props?.event ?? '';
+        const list = byEvent.get(event);
+        if (list) list.push(fi); else byEvent.set(event, [fi]);
+      }
+      // zone-only with nothing in cache yet: skipped until its zones land
     }
 
     if (opts?.skipIfDecisionsUnchanged && decisionsEqual(this._renderDecisions, newDecisions)) {
       return;
     }
     this._renderDecisions = newDecisions;
+
+    // Features carry the original alert's id and properties so the popup
+    // and style pick up its metadata; `alerts` is what the popup lists.
+    const built: Array<{ order: number; feature: GeoJSON.Feature; alerts: Array<AlertProps | null> }> = [];
+    for (const fi of inline) {
+      const f = this._features[fi];
+      built.push({
+        order: fi,
+        // inline storm polygons: small, simplified per render
+        feature: { type: 'Feature', id: f.id, properties: f.properties, geometry: simplifyGeometry(f.geometry!, tol) },
+        alerts: [f.properties as AlertProps | null],
+      });
+    }
+    // Each zone is drawn once per event. Overlapping alerts of one event
+    // (49 Small Craft Advisories from one office sharing zones, 2026-10-17)
+    // drew a zone two to four times, and a click opened only the topmost
+    // alert. Zones are grouped by the set of alerts that cover them: one
+    // feature per group, whose popup lists every alert in it. An event with
+    // one alert gives the same single feature as before.
+    for (const list of byEvent.values()) {
+      const cover = new Map<string, number[]>();   // zone url -> positions in list
+      list.forEach((fi, i) => {
+        for (const url of (this._features[fi].properties as AlertProps | null)?.affectedZones ?? []) {
+          if (!this._zoneCache.has(url)) continue;
+          const c = cover.get(url);
+          if (!c) cover.set(url, [i]);
+          else if (c[c.length - 1] !== i) c.push(i);   // a zone listed twice in one alert
+        }
+      });
+      // On a zone, an alert of this event is replaced by a later-issued one
+      // that is already in force: Juneau's Small Craft Advisory issued at
+      // 3:43 AM, in force at 4:43, still showed under the one issued at
+      // 9:36 PM the day before (2026-10-17). A later one not yet in force
+      // is listed with the current one until it starts. NWS's event numbers
+      // (VTEC) differed in all 18 such overlaps, so they cannot link them.
+      for (const [url, members] of cover) {
+        if (members.length < 2) continue;
+        let latest = -Infinity;
+        for (const i of members) {
+          const tm = this._times(this._features[list[i]]);
+          if (tm.inForce <= now && tm.sent > latest) latest = tm.sent;
+        }
+        if (latest === -Infinity) continue;
+        const kept = members.filter((i) => this._times(this._features[list[i]]).sent >= latest);
+        if (kept.length < members.length) cover.set(url, kept);
+      }
+      const groups = new Map<string, { members: number[]; zones: string[] }>();
+      for (const [url, members] of cover) {
+        const sig = members.join(',');
+        const g = groups.get(sig);
+        if (g) g.zones.push(url); else groups.set(sig, { members, zones: [url] });
+      }
+      for (const { members, zones } of groups.values()) {
+        const geometry = this._geometryFromZones(zones, zoom);
+        if (!geometry) continue;
+        const top = this._features[list[members[members.length - 1]]];   // most severe: last in paint order
+        built.push({
+          order: list[members[members.length - 1]],
+          feature: {
+            type: 'Feature',
+            id: members.length === 1 ? top.id : members.map((i) => featureKey(this._features[list[i]])).join('+'),
+            properties: top.properties,
+            geometry,
+          },
+          alerts: members.slice().reverse().map((i) => this._features[list[i]].properties as AlertProps | null),
+        });
+      }
+    }
+    built.sort((a, b) => a.order - b.order);   // stable: paint order, most severe on top
+    const renderable = built.map((b) => b.feature);
+    const alertsOf = new Map(built.map((b) => [b.feature, b.alerts]));
 
     if (this._polygonLayer) {
       this._map.removeLayer(this._polygonLayer);
@@ -717,7 +870,7 @@ export class NwsAlertsLayer {
         // height so a long alert description never spills outside the card;
         // Leaflet adds an internal scrollbar past the cap.
         layer.bindPopup(
-          buildPopupHtml(feature.properties as AlertProps | null, this._hass?.locale),
+          buildGroupPopupHtml(alertsOf.get(feature) ?? [feature.properties as AlertProps | null], this._hass?.locale),
           { autoPan: true, autoPanPadding: [12, 12], maxHeight: this._popupMaxHeight() },
         );
       },
@@ -776,11 +929,7 @@ export class NwsAlertsLayer {
 
   private _onViewChange = (): void => {
     if (this._features.length === 0) return;
-    if (this._popupOpen()) {
-      this._renderAfterPopup = true;
-      return;
-    }
-    this._render({ skipIfDecisionsUnchanged: true });
+    this._render({ skipIfDecisionsUnchanged: true });   // waits for an open popup (see _render)
   };
 
   private _onMapBusy = (): void => {
@@ -807,8 +956,15 @@ export class NwsAlertsLayer {
 
   private _onPopupClose = (): void => {
     if (!this._renderAfterPopup) return;
-    this._renderAfterPopup = false;
-    this._render({ skipIfDecisionsUnchanged: true });
+    // Leaflet fires popupclose from the popup's onRemove, while the popup
+    // is still on the map, so _popupOpen() is still true here and _render
+    // would defer again, forever. Render once the close has finished; if
+    // the close was another alert popup opening, _render defers again.
+    queueMicrotask(() => {
+      if (!this._renderAfterPopup) return;
+      this._renderAfterPopup = false;
+      this._render({ skipIfDecisionsUnchanged: true });
+    });
   };
 
   private _popupOpen(): boolean {
@@ -860,6 +1016,36 @@ export class NwsAlertsLayer {
 }
 
 // ── helpers ─────────────────────────────────────────────────────────────────
+
+// When an alert stops applying: the earlier of `expires` (when its message
+// expires; the next issue, if any, is a new alert) and `ends` (when the
+// hazard ends). Infinity when NWS gives neither. alerts/active keeps an
+// alert until `ends`: 108 of 492 alerts were past `expires` (2026-10-17),
+// one Heavy Freezing Spray Warning by five days, and 92 of them were
+// covered zone for zone by a newer alert of the same event.
+function alertOverAt(props: AlertProps | null): number {
+  let t = Infinity;
+  for (const s of [props?.expires, props?.ends]) {
+    const ms = s ? Date.parse(s) : NaN;
+    if (ms < t) t = ms;
+  }
+  return t;
+}
+
+// When an alert is in force: the later of its message's `effective` time
+// and its hazard's `onset`, else `sent`; -Infinity with none of them.
+function alertInForceAt(props: AlertProps | null): number {
+  let t = -Infinity;
+  for (const s of [props?.effective, props?.onset]) {
+    const ms = s ? Date.parse(s) : NaN;
+    if (ms > t) t = ms;
+  }
+  if (t === -Infinity && props?.sent) {
+    const ms = Date.parse(props.sent);
+    if (!Number.isNaN(ms)) t = ms;
+  }
+  return t;
+}
 
 function featureKey(f: GeoJSON.Feature): string {
   // NWS gives every alert a unique URL as feature.id. Always present in
@@ -931,7 +1117,7 @@ function paintOrderAscending(a: GeoJSON.Feature, b: GeoJSON.Feature): number {
   return ca - cb;
 }
 
-function buildPopupHtml(props: AlertProps | null, locale: FrontendLocaleData | undefined): string {
+function alertPopupParts(props: AlertProps | null, locale: FrontendLocaleData | undefined): { body: string; link: string } {
   const event = props?.event ?? localize('ui.alerts.unknown_event');
   const severity = props?.severity ?? '—';
   const certainty = props?.certainty ?? '—';
@@ -962,18 +1148,41 @@ function buildPopupHtml(props: AlertProps | null, locale: FrontendLocaleData | u
     ? props.uri
     : 'https://www.weather.gov/alerts';
 
-  return `
-    <div style="font:12px/1.4 'Helvetica Neue',Arial,sans-serif;min-width:220px;max-width:320px">
+  const body = `
       <div style="font-weight:bold;font-size:13px;margin-bottom:4px;color:${accent}">${escapeHtml(event)}</div>
       ${headline ? `<div style="margin-bottom:6px">${escapeHtml(truncate(headline, 200))}</div>` : ''}
       <div><b>${escapeHtml(localize('ui.alerts.severity'))}:</b> ${escapeHtml(severity)} · <b>${escapeHtml(localize('ui.alerts.certainty'))}:</b> ${escapeHtml(certainty)} · <b>${escapeHtml(localize('ui.alerts.urgency'))}:</b> ${escapeHtml(urgency)}</div>
       <div><b>${escapeHtml(localize('ui.alerts.effective'))}:</b> ${escapeHtml(effective)}</div>
       <div><b>${escapeHtml(localize('ui.alerts.expires'))}:</b> ${escapeHtml(expires)}</div>
-      ${description ? `<div style="margin-top:6px;white-space:pre-line;max-height:240px;overflow:auto">${escapeHtml(truncate(description, 1500))}</div>` : ''}
-      <div style="margin-top:6px;font-size:10px;color:#a00;font-weight:bold">${escapeHtml(localize('ui.alerts.disclaimer'))} <a href="${DOCS_ALERTS_URL}" target="_blank" rel="noopener noreferrer" style="color:#a00;text-decoration:underline">${escapeHtml(localize('ui.alerts.see_readme'))}</a>.</div>
-      <div style="margin-top:4px"><a href="${escapeHtml(linkUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(localize('ui.alerts.more_info'))}</a></div>
+      ${description ? `<div style="margin-top:6px;white-space:pre-line;max-height:240px;overflow:auto">${escapeHtml(truncate(description, 1500))}</div>` : ''}`;
+  const link = `
+      <div style="margin-top:4px"><a href="${escapeHtml(linkUrl)}" target="_blank" rel="noopener noreferrer">${escapeHtml(localize('ui.alerts.more_info'))}</a></div>`;
+  return { body, link };
+}
+
+const POPUP_OPEN = `
+    <div style="font:12px/1.4 'Helvetica Neue',Arial,sans-serif;min-width:220px;max-width:320px">`;
+const POPUP_CLOSE = `
     </div>
   `;
+
+function disclaimerHtml(): string {
+  return `
+      <div style="margin-top:6px;font-size:10px;color:#a00;font-weight:bold">${escapeHtml(localize('ui.alerts.disclaimer'))} <a href="${DOCS_ALERTS_URL}" target="_blank" rel="noopener noreferrer" style="color:#a00;text-decoration:underline">${escapeHtml(localize('ui.alerts.see_readme'))}</a>.</div>`;
+}
+
+function buildPopupHtml(props: AlertProps | null, locale: FrontendLocaleData | undefined): string {
+  const { body, link } = alertPopupParts(props, locale);
+  return POPUP_OPEN + body + disclaimerHtml() + link + POPUP_CLOSE;
+}
+
+/** Popup for a zone several alerts of one event cover: each alert in
+ * turn, most severe first, and the disclaimer once at the end. */
+function buildGroupPopupHtml(alerts: Array<AlertProps | null>, locale: FrontendLocaleData | undefined): string {
+  if (alerts.length <= 1) return buildPopupHtml(alerts[0] ?? null, locale);
+  const parts = alerts.map((p) => { const { body, link } = alertPopupParts(p, locale); return body + link; });
+  return POPUP_OPEN + parts.join(`
+      <hr style="border:0;border-top:1px solid #ccc;margin:8px 0">`) + disclaimerHtml() + POPUP_CLOSE;
 }
 
 // Relative luminance per WCAG (simplified — straight-RGB average rather
@@ -1011,11 +1220,14 @@ export { ALL_ALERT_CATEGORIES, NWS_ALERT_DEFAULT_COLOR };
 // tests can exercise them; do not consume from production code paths
 // outside this module.
 export {
+  alertOverAt,
+  alertInForceAt,
   featureKey,
   decisionsEqual,
   paintOrderAscending,
   relativeLuminance,
   formatDateTime,
   buildPopupHtml,
+  buildGroupPopupHtml,
   boundsIntersect,
 };

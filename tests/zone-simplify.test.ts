@@ -7,14 +7,15 @@ import { describe, it, expect } from 'vitest';
 import { simplifyRing, simplifyGeometry, normalizeZoneGeometry, simplifyToleranceForZoom, SIMPLIFY_TOLERANCE_DEG } from '../src/zone-store';
 
 describe('simplifyToleranceForZoom', () => {
-  it('is half a pixel of longitude at the zoom, coarser at low zooms', () => {
-    expect(simplifyToleranceForZoom(3)).toBeCloseTo(0.0879, 4);
-    expect(simplifyToleranceForZoom(5)).toBeCloseTo(0.0220, 4);
-    expect(simplifyToleranceForZoom(7)).toBeCloseTo(0.0055, 4);
+  it('is one pixel of longitude at the zoom, coarser at low zooms', () => {
+    expect(simplifyToleranceForZoom(3)).toBeCloseTo(0.1758, 4);
+    expect(simplifyToleranceForZoom(5)).toBeCloseTo(0.0439, 4);
+    expect(simplifyToleranceForZoom(7)).toBeCloseTo(0.0110, 4);
+    expect(simplifyToleranceForZoom(9)).toBeCloseTo(0.0027, 4);
   });
 
   it('never goes finer than the stored outline', () => {
-    expect(simplifyToleranceForZoom(9)).toBe(SIMPLIFY_TOLERANCE_DEG);
+    expect(simplifyToleranceForZoom(10)).toBe(SIMPLIFY_TOLERANCE_DEG);
     expect(simplifyToleranceForZoom(16)).toBe(SIMPLIFY_TOLERANCE_DEG);
   });
 
@@ -88,10 +89,37 @@ describe('simplifyRing', () => {
     expect(out[0]).toEqual(out[out.length - 1]);
   });
 
-  it('returns the original ring when simplification would leave fewer than four points', () => {
+  it('keeps four points when simplification would leave fewer, not the whole ring', () => {
     // A sliver thinner than the tolerance would collapse to its two ends.
     const sliver: GeoJSON.Position[] = [[0, 0], [1, 0.0001], [2, 0], [1, -0.0001], [0, 0]];
-    expect(simplifyRing(sliver, 0.002)).toBe(sliver);
+    expect(simplifyRing(sliver, 0.002)).toEqual([[0, 0], [1, 0.0001], [2, 0], [0, 0]]);
+    // A long, narrow ring of 1000 points: four survive, the far end among them.
+    const long: GeoJSON.Position[] = [];
+    for (let i = 0; i <= 500; i++) long.push([i / 100, 0.0005 * Math.sin(i)]);
+    for (let i = 499; i >= 0; i--) long.push([i / 100, 0.001 + 0.0005 * Math.sin(i)]);
+    long.push(long[0]);
+    const out = simplifyRing(long, 0.01);
+    expect(out).toHaveLength(4);
+    expect(out[0]).toEqual(out[3]);
+    expect(Math.max(...out.map((p) => p[0]))).toBeCloseTo(5, 6);
+  });
+
+  it('a coarser tolerance never keeps more points', () => {
+    // A jagged coastline-like ring: 3000 points with noise at several scales.
+    const ring: GeoJSON.Position[] = [];
+    for (let i = 0; i < 3000; i++) {
+      const a = (2 * Math.PI * i) / 3000;
+      const r = 1 + 0.05 * Math.sin(37 * a) + 0.01 * Math.sin(301 * a) + 0.002 * Math.sin(1999 * a);
+      ring.push([r * Math.cos(a), 0.3 * r * Math.sin(a)]);
+    }
+    ring.push(ring[0]);
+    let prev = Infinity;
+    for (const tol of [0.0005, 0.001, 0.002, 0.005, 0.01, 0.02, 0.05, 0.1, 0.2, 0.5]) {
+      const n = simplifyRing(ring, tol).length;
+      expect(n).toBeLessThanOrEqual(prev);
+      expect(n).toBeGreaterThanOrEqual(4);
+      prev = n;
+    }
   });
 
   it('every original point stays within the tolerance of the simplified outline', () => {
@@ -140,9 +168,10 @@ describe('simplifyGeometry', () => {
     expect((simplifyGeometry(geom, 0.002) as GeoJSON.MultiPolygon).coordinates).toEqual([[square, hole], [islet]]);
   });
 
-  it('a ring that is thin in one direction only is kept', () => {
+  it('a ring that is thin in one direction only is kept, as four points spanning its length', () => {
     const strip: GeoJSON.Position[] = [[0, 0], [1, 0], [1, 0.001], [0, 0.001], [0, 0]];
-    expect((simplifyGeometry({ type: 'Polygon', coordinates: [strip] }, 0.05) as GeoJSON.Polygon).coordinates[0]).toEqual(strip);
+    const kept = (simplifyGeometry({ type: 'Polygon', coordinates: [strip] }, 0.05) as GeoJSON.Polygon).coordinates[0];
+    expect(kept).toEqual([[0, 0], [1, 0], [1, 0.001], [0, 0]]);
   });
 
   it('a Polygon that vanishes becomes an empty MultiPolygon', () => {

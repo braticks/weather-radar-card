@@ -42,6 +42,7 @@ export interface StoredZone {
   ts: number;                    // write time (epoch ms) — TTL + LRU key
   c: 0 | 1;                      // 1 = data is gzipped JSON, 0 = plain JSON
   data: ArrayBuffer | string;    // compressed bytes (c=1) or JSON text (c=0)
+  v?: number;                    // ZONE_FORMAT of the geometry; absent = older
 }
 
 // ── pure helpers ──────────────────────────────────────────────────────────
@@ -76,24 +77,45 @@ export function quantizeGeometry(geom: GeoJSON.Geometry, dp = COORD_DP): GeoJSON
 // zoom, a 150-200 MB heap spike per preset switch that killed mobile
 // browsers (2026-10-16). At 0.002° the same set is 318 k coordinates. The
 // error is under a pixel below zoom 11 and ~6 px at zoom 12, on advisory
-// areas that are not surveyed boundaries. Stored zones carry whatever
-// tolerance was current when written; a change here reaches them at the TTL.
+// areas that are not surveyed boundaries. Bump ZONE_FORMAT when this or
+// simplifyRing changes, so stored zones are rewritten (readZoneEntry).
 export const SIMPLIFY_TOLERANCE_DEG = 0.002;
 
-// Outline tolerance for drawing at a given map zoom: half a pixel of
+// Version of the geometry a stored zone holds. Records without it are
+// full-precision shapes from before simplification (3.x up to 4.0.0-alpha2:
+// about six times the vertices, gunzipped, parsed and simplified again on
+// every load until their TTL) or simplified with the old four-point floor
+// (4.0.0-alpha3). The alerts layer writes such records back once.
+export const ZONE_FORMAT = 2;
+
+// Outline tolerance for drawing at a given map zoom: one CSS pixel of
 // longitude at that zoom (256 px tiles), never finer than the stored
-// SIMPLIFY_TOLERANCE_DEG. At zoom 3 that is ~0.09°, at zoom 5 ~0.02°; from
-// zoom 9 the stored outline is used as it is. The rebuild after a zoom
+// SIMPLIFY_TOLERANCE_DEG. At zoom 3 that is ~0.18°, at zoom 5 ~0.04°; from
+// zoom 10 the stored outline is used as it is. The rebuild after a zoom
 // gesture was still a 200 ms to 2 s block with ~450 alerts in view at the
-// zoom the snap-back of an over-zoomed pinch lands on (2026-10-16).
+// zoom the snap-back of an over-zoomed pinch lands on (2026-10-16). One
+// pixel instead of half halves the vertices drawn at zooms 4 to 8 (zoom 5:
+// 25k -> 15k) and side-by-side renders at 3x looked the same (2026-10-17).
 export function simplifyToleranceForZoom(zoom: number): number {
   const z = Math.max(0, Math.round(zoom));
-  return Math.max(SIMPLIFY_TOLERANCE_DEG, (0.5 * 360) / (256 * 2 ** z));
+  return Math.max(SIMPLIFY_TOLERANCE_DEG, 360 / (256 * 2 ** z));
 }
 
-/** Douglas-Peucker on one ring. The closure point stays. A ring that would
- * fall below four points is returned as it is: a zone smaller than the
- * tolerance has few points anyway, and a triangle or less is not a ring. */
+/** Squared distance from ring[i] to the segment ring[s]..ring[e]. */
+function segDist2(ring: GeoJSON.Position[], i: number, s: number, e: number): number {
+  const [x1, y1] = ring[s];
+  const [x2, y2] = ring[e];
+  const [x, y] = ring[i];
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const len2 = dx * dx + dy * dy;
+  if (len2 === 0) return (x - x1) ** 2 + (y - y1) ** 2;
+  const t = Math.max(0, Math.min(1, ((x - x1) * dx + (y - y1) * dy) / len2));
+  return (x - x1 - t * dx) ** 2 + (y - y1 - t * dy) ** 2;
+}
+
+/** Douglas-Peucker on one ring. The closure point stays, and at least four
+ * points do: a triangle or less is not a ring. */
 export function simplifyRing(ring: GeoJSON.Position[], tol: number): GeoJSON.Position[] {
   const n = ring.length;
   if (tol <= 0 || n < 5) return ring;
@@ -102,34 +124,45 @@ export function simplifyRing(ring: GeoJSON.Position[], tol: number): GeoJSON.Pos
   keep[0] = 1;
   keep[n - 1] = 1;
   const stack: [number, number][] = [[0, n - 1]];
+  let kept = 2;
   while (stack.length) {
     const [s, e] = stack.pop()!;
-    const [x1, y1] = ring[s];
-    const [x2, y2] = ring[e];
-    const dx = x2 - x1;
-    const dy = y2 - y1;
-    const len2 = dx * dx + dy * dy;
     let maxD = 0;
     let idx = -1;
     for (let i = s + 1; i < e; i++) {
-      const [x, y] = ring[i];
-      let d: number;
-      if (len2 === 0) {
-        d = (x - x1) ** 2 + (y - y1) ** 2;
-      } else {
-        const t = Math.max(0, Math.min(1, ((x - x1) * dx + (y - y1) * dy) / len2));
-        d = (x - x1 - t * dx) ** 2 + (y - y1 - t * dy) ** 2;
-      }
+      const d = segDist2(ring, i, s, e);
       if (d > maxD) { maxD = d; idx = i; }
     }
     if (maxD > sq && idx > 0) {
       keep[idx] = 1;
+      kept++;
       stack.push([s, idx], [idx, e]);
     }
   }
+  // Under four points the ring is narrower than the tolerance along its
+  // length: add the points farthest from the kept outline until it is a
+  // ring again. This used to return the whole ring, so mid-sized zones kept
+  // every vertex at coarse zooms and a coarser tolerance drew more: zoom 3
+  // drew 23k vertices at half a pixel and 76k at two (2026-10-17).
+  while (kept < 4) {
+    let best = -1;
+    let bestD = -1;
+    let prev = 0;
+    for (let i = 1; i < n; i++) {
+      if (!keep[i]) continue;
+      for (let j = prev + 1; j < i; j++) {
+        const d = segDist2(ring, j, prev, i);
+        if (d > bestD) { bestD = d; best = j; }
+      }
+      prev = i;
+    }
+    if (best < 0) break;
+    keep[best] = 1;
+    kept++;
+  }
   const out: GeoJSON.Position[] = [];
   for (let i = 0; i < n; i++) if (keep[i]) out.push(ring[i]);
-  return out.length >= 4 ? out : ring;
+  return out;
 }
 
 /** The drawable part of a zone's geometry as one Polygon / MultiPolygon, or
@@ -216,8 +249,8 @@ async function gunzip(buf: ArrayBuffer): Promise<string> {
 export async function encodeZone(geom: GeoJSON.Geometry, now: number): Promise<StoredZone> {
   const json = JSON.stringify(quantizeGeometry(geom));
   return hasCompression
-    ? { ts: now, c: 1, data: await gzip(json) }
-    : { ts: now, c: 0, data: json };
+    ? { ts: now, c: 1, data: await gzip(json), v: ZONE_FORMAT }
+    : { ts: now, c: 0, data: json, v: ZONE_FORMAT };
 }
 
 /** Inverse of encodeZone. Throws on corrupt data (caller treats as miss). */
@@ -247,6 +280,14 @@ export interface ZoneKV {
 /** Read + decode a cached zone, or null on miss / expiry / corruption.
  * Expired or corrupt entries are deleted as a side effect. */
 export async function readZone(kv: ZoneKV, url: string, now: number): Promise<GeoJSON.Geometry | null> {
+  return (await readZoneEntry(kv, url, now))?.geom ?? null;
+}
+
+/** readZone plus the record's write time and whether its geometry is the
+ * current ZONE_FORMAT (false: the caller should write it back). */
+export async function readZoneEntry(
+  kv: ZoneKV, url: string, now: number,
+): Promise<{ geom: GeoJSON.Geometry; ts: number; current: boolean } | null> {
   const key = zoneKeyFromUrl(url);
   try {
     const rec = await kv.get(key);
@@ -255,7 +296,7 @@ export async function readZone(kv: ZoneKV, url: string, now: number): Promise<Ge
       await kv.delete(key);
       return null;
     }
-    return await decodeZone(rec);
+    return { geom: await decodeZone(rec), ts: rec.ts, current: rec.v === ZONE_FORMAT };
   } catch {
     try { await kv.delete(key); } catch { /* backend gone */ }
     return null;
