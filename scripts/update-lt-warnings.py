@@ -21,7 +21,7 @@ MAX_ENTRIES = 200
 def get_xml(url):
     if urllib.parse.urlparse(url).scheme != "https":
         raise ValueError("Only HTTPS sources accepted")
-    request = urllib.request.Request(url, headers={"User-Agent": "HA-WeatherRadar-EuropeAlerts/0.1 (GitHub Actions)", "Accept": "application/atom+xml, application/xml, text/xml"})
+    request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (compatible; WeatherRadarCard/1.0; +https://github.com/braticks/weather-radar-card)", "Accept": "*/*"})
     with urllib.request.urlopen(request, timeout=25) as resp:
         data = resp.read(3_000_001)
         if len(data) > 3_000_000:
