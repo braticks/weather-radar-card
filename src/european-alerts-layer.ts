@@ -37,7 +37,7 @@ export class EuropeanAlertsLayer {
         properties: { title: w.title, description: w.description, level: w.level },
         geometry: w.geometry!,
       }));
-      const group = L.geoJSON({ type: 'FeatureCollection', features }, {
+      const group = L.geoJSON(({ type: 'FeatureCollection', features } as GeoJSON.FeatureCollection), {
         style: (feature) => {
           const level = feature?.properties?.level;
           const color = level === 'red' ? '#d32f2f' : level === 'orange' ? '#ef6c00' : level === 'yellow' ? '#fbc02d' : '#607d8b';
