@@ -5,11 +5,12 @@ import { ViewerState } from './viewer-state';
 import { isBlitzortungLoaded } from './lightning-helpers';
 import { localize } from './localize/localize';
 
-export type OverlayKey = 'alerts' | 'wind' | 'wildfires' | 'lightning';
+export type OverlayKey = 'alerts' | 'european_alerts' | 'wind' | 'wildfires' | 'lightning';
 
 // Left to right in the toggle bar.
 const OVERLAYS: { key: OverlayKey; icon: string }[] = [
   { key: 'alerts', icon: 'mdi:alert' },
+  { key: 'european_alerts', icon: 'mdi:alert-outline' },
   { key: 'wind', icon: 'mdi:weather-windy' },
   { key: 'wildfires', icon: 'mdi:fire' },
   { key: 'lightning', icon: 'mdi:flash' },
@@ -29,6 +30,7 @@ export function overlayConfigured(
 ): boolean {
   switch (key) {
     case 'alerts': return cfg.show_alerts === true;
+    case 'european_alerts': return cfg.show_european_alerts === true;
     case 'wind': return cfg.dwd_wind === 'barbs' || cfg.dwd_wind === 'arrows' || cfg.dwd_wind_flow === true;
     case 'wildfires': return cfg.show_wildfires === true;
     case 'lightning': return cfg.show_lightning === true && isBlitzortungLoaded(hass);
@@ -88,7 +90,7 @@ export class LayerToggleBar extends L.Control {
       const a = L.DomUtil.create('a', 'radar-layer-toggle', bar) as HTMLAnchorElement;
       a.href = '#';
       a.setAttribute('role', 'button');
-      const name = localize(`ui.layers.${key}`);
+      const name = key === 'european_alerts' ? 'Europos orų pavojai' : localize(`ui.layers.${key}`);
       a.title = name;
       a.setAttribute('aria-label', name);
       L.DomUtil.create('ha-icon', '', a).setAttribute('icon', icon);

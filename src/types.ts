@@ -297,6 +297,10 @@ export interface WeatherRadarCardConfig extends LovelaceCardConfig {
   lightning_icon_size?: number;
   // NWS watches & warnings overlay (US-only — see docs/nws-alerts-feature-design.md)
   show_alerts?: boolean;
+  /** Enable European CAP GeoJSON polygons from a trusted, browser-reachable URL. */
+  show_european_alerts?: boolean;
+  /** GeoJSON FeatureCollection URL, preferably proxied by Home Assistant (no secrets). */
+  european_alerts_url?: string;
   alerts_categories?: string[];        // category keys; default: all except 'marine'
   alerts_types?: string[];             // explicit event-string allowlist; overrides alerts_categories when set
   alerts_radius_km?: number;
