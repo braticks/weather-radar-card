@@ -1,34 +1,45 @@
-# Lithuania / Europe weather warnings – work in progress
+# European weather warnings (experimental)
 
-The fork's planned new overlay uses **MeteoAlarm** alerts, initially for Lithuania.
-The official Lithuania Atom feed is
-`https://feeds.meteoalarm.org/feeds/meteoalarm-legacy-atom-lithuania`.
+This fork now supports an **optional** European weather warnings map overlay,
+controlled with a top-right layer toggle alongside the other 4.0 overlays.
 
-## First step
+Example card YAML:
 
-`src/european-alerts.ts` adds a provider-independent warning model, Atom
-parsing, severity normalization, and optional GeoJSON polygon handling.
+```yaml
+type: custom:weather-radar-card
+show_layer_toggles: true
+show_european_alerts: true
+european_alerts_url: /local/weather-warnings.geojson
+```
 
-## Not enabled in the card yet
+The URL must return a **GeoJSON FeatureCollection** of warning polygons or
+multipolygons, readable by the card's browser (same-origin HA URL recommended).
+Supported feature properties: `id` or `alertId` (required),
+`headline`/`event`/`title`, `description`, and
+`awareness_level` (2/yellow, 3/orange, 4/red), or
+`severity` (Moderate/Severe/Extreme).
 
-The adapter is not wired to the map or layer-toggles. It does not display
-warnings by itself. The existing Weather Radar Card 4.0 behavior remains
-unchanged.
+The map redraws approximately every five minutes while the layer is enabled.
+Warning text is inserted safely into HTML via textContent; popup titles and
+descriptions are never interpreted as HTML.
 
-Before enabling the overlay:
-1. Verify browser CORS against the production Atom feed, or fetch server-side
-   via a Home Assistant integration/proxy; never embed API credentials in JS.
-2. Confirm alert severity and validity time from CAP detail, rather than
-   guessing from translated Atom titles.
-3. Resolve **real** warning-region geometries; do not paint a whole country
-   rectangle as if it were the official affected area.
-4. Integrate a toggle alongside wind/lightning/US alerts, with country-aware
-   availability, UI text, refresh caching, and handling of cancelled/expired alerts.
-5. Test against live Lithuanian messages and add unit tests.
+**Important: this is not a live Lithuania feed out of the box.**
+The GeoJSON URL is currently user-provided; no operational MeteoAlarm/HA
+proxy is supplied. Do not use invented polygon shapes or assume the Atom
+feed includes them. A test GeoJSON file is not an authoritative live warning.
 
-Official sources:
+MeteoAlarm's direct EDR API requires authorized access. Public Atom feeds
+provide alert discovery, but translating these to exact polygons and filtering
+cancelled/expired alerts requires a validated server-side adapter. The
+current GeoJSON adapter requires the provider to filter its output to
+*currently active* alerts.
+
+This is an unreleased draft branch. Build and live-data integration have not
+been verified. Do not merge or install this branch as production yet.
+
+Sources:
 - https://api.meteoalarm.org/
 - https://feeds.meteoalarm.org/
 
-Attribution: EUMETNET MeteoAlarm and the issuing national weather service.
-Warnings are informational; official agency guidance takes precedence.
+Attribution: EUMETNET MeteoAlarm and national meteorological agencies.
+Consult official agencies for decisions affecting safety.
