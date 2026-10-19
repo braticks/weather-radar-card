@@ -6,12 +6,14 @@ export class EuropeanAlertsLayer {
   private layer: L.GeoJSON | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private controller: AbortController | null = null;
+  private disposed = false;
 
   constructor(private map: L.Map, private url: string) {}
 
-  start(): void { void this.refresh(); }
+  start(): void { this.disposed = false; void this.refresh(); }
 
   clear(): void {
+    this.disposed = true;
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
     this.controller?.abort();
@@ -29,7 +31,7 @@ export class EuropeanAlertsLayer {
       if (!res.ok) throw new Error(`Warnings feed HTTP ${res.status}`);
       const warnings = normalizeEuropeanGeoJson(await res.json())
         .filter((w) => !!w.geometry);
-      if (controller.signal.aborted) return;
+      if (controller.signal.aborted || this.disposed) return;
       const features: GeoJSON.Feature[] = warnings.map((w) => ({
         type: 'Feature',
         properties: { title: w.title, description: w.description, level: w.level },
@@ -60,7 +62,7 @@ export class EuropeanAlertsLayer {
     } catch (e) {
       if (!controller.signal.aborted) console.warn('[Weather Radar Card] European warnings:', e);
     } finally {
-      if (!controller.signal.aborted) {
+      if (!controller.signal.aborted && !this.disposed) {
         this.timer = setTimeout(() => void this.refresh(), 5 * 60 * 1000);
       }
     }
