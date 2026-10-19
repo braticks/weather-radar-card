@@ -19,3 +19,7 @@ jobs:
       - run: npm run build
       - run: npm test -- --run
       - run: python3 -m py_compile scripts/update-lt-warnings.py
+      - name: Validate live MeteoAlarm feed conversion
+        run: |
+          WARNINGS_OUTPUT=/tmp/lt-warnings.geojson python3 scripts/update-lt-warnings.py
+          python3 -c 'import json; j=json.load(open("/tmp/lt-warnings.geojson")); assert j["type"] == "FeatureCollection" and isinstance(j["features"],list)'
