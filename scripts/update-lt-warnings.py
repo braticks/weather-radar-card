@@ -101,6 +101,7 @@ def main():
     root = get_xml(FEED)
     entries = [e for e in root.iter() if e.tag == ATOM + "entry"]
     result = []
+    cap_entries = 0
     for entry in entries[:MAX_ENTRIES]:
         links = [e.attrib.get("href", "") for e in entry if e.tag == ATOM + "link"]
         # The Atom entry may embed CAP content; otherwise follow HTTPS detail URLs.
@@ -111,8 +112,14 @@ def main():
             for url in cap_links[:1]:
                 try: candidates.append(get_xml(url))
                 except Exception as error: print("CAP detail unavailable:", error)
+        if candidates:
+            cap_entries += 1
+        else:
+            print("No CAP detail for Atom entry:", text(entry, "id")[:160], "links:", links[:3])
         for cap_root in candidates:
             result.extend(cap_records(cap_root, now))
+    if entries and cap_entries == 0:
+        raise RuntimeError("MeteoAlarm returned Atom entries but no CAP detail. Cannot build warning regions; inspect logged links.")
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
     payload = {
         "type": "FeatureCollection",
@@ -120,7 +127,7 @@ def main():
         "metadata": {"generatedAt": now.isoformat(), "source": "EUMETNET MeteoAlarm", "feed": FEED},
     }
     OUTPUT.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n", encoding="utf-8")
-    print(f"Entries: {len(entries)}; active alert polygons: {len(result)}")
+    print(f"Entries: {len(entries)}; CAP details: {cap_entries}; active alert polygons: {len(result)}")
 
 if __name__ == "__main__":
     main()
