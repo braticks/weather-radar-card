@@ -30,7 +30,7 @@ export function overlayConfigured(
 ): boolean {
   switch (key) {
     case 'alerts': return cfg.show_alerts === true;
-    case 'european_alerts': return cfg.show_european_alerts === true && !!cfg.european_alerts_url;
+    case 'european_alerts': return cfg.show_european_alerts === true;
     case 'wind': return cfg.dwd_wind === 'barbs' || cfg.dwd_wind === 'arrows' || cfg.dwd_wind_flow === true;
     case 'wildfires': return cfg.show_wildfires === true;
     case 'lightning': return cfg.show_lightning === true && isBlitzortungLoaded(hass);
