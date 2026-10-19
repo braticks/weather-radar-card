@@ -129,6 +129,7 @@ import {
 import { WildfireLayer } from './wildfire-layer';
 import { NwsAlertsLayer, type AlertsStatus } from './nws-alerts-layer';
 import { EuropeanAlertsLayer } from './european-alerts-layer';
+const DEFAULT_LT_WARNINGS_URL = 'https://raw.githubusercontent.com/braticks/weather-radar-card/feature/lt-weather-warnings/data/lt-warnings.geojson';
 import { LightningLayer } from './lightning-layer';
 import { getRegionWarnings } from './region-warning';
 import { escapeHtml } from './string-utils';
@@ -916,7 +917,7 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
         this._alertsLayer.start();
         break;
       case 'european_alerts':
-        this._europeanAlertsLayer = new EuropeanAlertsLayer(this._map, this._config.european_alerts_url!);
+        this._europeanAlertsLayer = new EuropeanAlertsLayer(this._map, this._config.european_alerts_url || DEFAULT_LT_WARNINGS_URL);
         this._europeanAlertsLayer.start();
         break;
       case 'wind':
