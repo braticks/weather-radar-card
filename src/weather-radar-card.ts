@@ -902,7 +902,8 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
     switch (key) {
       case 'alerts': return this._alertsLayer !== null;
       case 'european_alerts': return this._europeanAlertsLayer !== null;
-      case 'wind': return this._windOverlay !== null || this._windFlow !== null;
+      case 'wind': return this._windOverlay !== null;
+      case 'wind_flow': return this._windFlow !== null;
       case 'wildfires': return this._wildfireLayer !== null;
       case 'lightning': return this._lightningLayer !== null;
     }
@@ -921,7 +922,10 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
         this._europeanAlertsLayer.start();
         break;
       case 'wind':
-        this._setupWindOverlay();
+        this._setupWindOverlay('wind');
+        break;
+      case 'wind_flow':
+        this._setupWindOverlay('wind_flow');
         break;
       case 'wildfires':
         this._wildfireLayer = new WildfireLayer(this._map, () => this._config, this.hass);
@@ -947,6 +951,8 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
       case 'wind':
         this._windOverlay?.destroy();
         this._windOverlay = null;
+        break;
+      case 'wind_flow':
         this._windFlow?.destroy();
         this._windFlow = null;
         break;
@@ -1128,7 +1134,7 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
     return mapStyle === 'satellite' && isMapTilesLoaded(this.hass) && this._config.low_power_mode !== true;
   }
 
-  private _setupWindOverlay(): void {
+  private _setupWindOverlay(layer: 'wind' | 'wind_flow'): void {
     if (!this._map) return;
     const cfg = this._config;
     // Wind overlay is data-source-independent: ICON (10 m wind) is a
@@ -1148,7 +1154,7 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
 
     const windSource = cfg.wind_source ?? DEFAULT_WIND_SOURCE;
     const mode = cfg.dwd_wind ?? 'off';
-    if (mode === 'barbs' || mode === 'arrows') {
+    if (layer === 'wind' && (mode === 'barbs' || mode === 'arrows')) {
       this._windOverlay = new WindOverlay(this._map, {
         style: mode,
         density: cfg.dwd_wind_density,
@@ -1158,7 +1164,7 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
         preloadWhileHidden: cfg.preload_while_hidden === true,
       });
     }
-    if (cfg.dwd_wind_flow === true) {
+    if (layer === 'wind_flow' && cfg.dwd_wind_flow === true) {
       // Pick streamline colour from the active basemap. Satellite is split out
       // from the plain dark Carto map: satellite imagery has more varied
       // terrain (forests, snow, water) and benefits from a brighter stroke,
