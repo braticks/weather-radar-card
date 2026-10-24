@@ -17,6 +17,7 @@ OUTPUT = Path(os.environ.get("WARNINGS_OUTPUT", "data/lt-warnings.geojson"))
 ATOM = "{http://www.w3.org/2005/Atom}"
 CAP = "{urn:oasis:names:tc:emergency:cap:1.2}"
 MAX_ENTRIES = 200
+GEOCODES_URL = "https://raw.githubusercontent.com/NiklasJordan/meteoalarm/main/src/meteoalarm/assets/geocodes.json"
 
 def get_xml(url):
     if urllib.parse.urlparse(url).scheme != "https":
@@ -27,6 +28,25 @@ def get_xml(url):
         if len(data) > 3_000_000:
             raise ValueError("Oversize warning feed")
     return ET.fromstring(data)
+
+def get_geocodes():
+    request = urllib.request.Request(GEOCODES_URL, headers={"User-Agent": "WeatherRadarCard/1.0", "Accept": "application/json"})
+    with urllib.request.urlopen(request, timeout=40) as resp:
+        content = resp.read(40_000_001)
+    if len(content) > 40_000_000:
+        raise ValueError("Oversize geocodes dataset")
+    data = json.loads(content)
+    geometries = {}
+    for item in data.get("features", []):
+        props = item.get("properties", {})
+        code = props.get("code", "")
+        geometry = item.get("geometry")
+        if props.get("type") == "EMMA_ID" and str(code).startswith("LT") and geometry and geometry.get("type") in ("Polygon", "MultiPolygon"):
+            geometries[str(code)] = geometry
+    if not geometries:
+        raise RuntimeError("No Lithuania EMMA_ID geometries available")
+    print(f"Loaded {len(geometries)} Lithuania warning-region polygons")
+    return geometries
 
 def text(node, name):
     if node is None: return ""
@@ -62,7 +82,7 @@ def polygon_from_cap(value):
     if coords[0] != coords[-1]: coords.append(coords[0])
     return coords if len(coords) >= 4 else None
 
-def cap_records(cap_root, now):
+def cap_records(cap_root, now, geocodes):
     if text(cap_root, "status").lower() not in ("actual", ""): return []
     if text(cap_root, "msgType").lower() in ("cancel", "ack", "error"): return []
     root_id = text(cap_root, "identifier")
@@ -77,9 +97,18 @@ def cap_records(cap_root, now):
                 val = text(parameter, "value")
                 if val: color = severity(val.split(";")[0])
         for area in (a for a in info if a.tag.split("}")[-1] == "area"):
+            shapes = []
             for part in (p for p in area if p.tag.split("}")[-1] == "polygon"):
                 points = polygon_from_cap(part.text or "")
-                if not points: continue
+                if points:
+                    shapes.append({"type": "Polygon", "coordinates": [points]})
+            if not shapes:
+                for geo in (g for g in area if g.tag.split("}")[-1] == "geocode"):
+                    if text(geo, "valueName") == "EMMA_ID":
+                        shape = geocodes.get(text(geo, "value"))
+                        if shape:
+                            shapes.append(shape)
+            for shape in shapes:
                 records.append({
                     "type": "Feature",
                     "id": root_id + ":" + str(len(records)),
@@ -92,7 +121,7 @@ def cap_records(cap_root, now):
                         "expires": expires.isoformat(),
                         "area": text(area, "areaDesc"),
                     },
-                    "geometry": {"type": "Polygon", "coordinates": [points]},
+                    "geometry": shape,
                 })
     return records
 
@@ -102,6 +131,7 @@ def main():
     entries = [e for e in root.iter() if e.tag == ATOM + "entry"]
     result = []
     cap_entries = 0
+    geocodes = get_geocodes()
     for entry in entries[:MAX_ENTRIES]:
         links = [e.attrib.get("href", "") for e in entry if e.tag == ATOM + "link"]
         # The Atom entry may embed CAP content; otherwise follow HTTPS detail URLs.
@@ -117,7 +147,7 @@ def main():
         else:
             print("No CAP detail for Atom entry:", text(entry, "id")[:160], "links:", links[:3])
         for cap_root in candidates:
-            result.extend(cap_records(cap_root, now))
+            result.extend(cap_records(cap_root, now, geocodes))
     if entries and cap_entries == 0:
         raise RuntimeError("MeteoAlarm returned Atom entries but no CAP detail. Cannot build warning regions; inspect logged links.")
     OUTPUT.parent.mkdir(parents=True, exist_ok=True)
