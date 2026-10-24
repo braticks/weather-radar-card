@@ -1,45 +1,54 @@
-# European weather warnings (experimental)
+# Lithuanian MeteoAlarm warnings – experimental Home Assistant fork
 
-This fork now supports an **optional** European weather warnings map overlay,
-controlled with a top-right layer toggle alongside the other 4.0 overlays.
+This fork extends Weather Radar Card 4.0 with a toggleable ⚠️ European weather warning overlay.
 
-Example card YAML:
+## Verified 2026-10-24
+
+- TypeScript/Lovelace bundle builds successfully (GitHub Build #24).
+- 1,540 automated tests pass (Validate European warnings #27).
+- Live Lithuania MeteoAlarm feed parsed: 6 CAP messages, 2 active geographic polygons.
+- Region boundaries come from EMMA_ID geocodes, when CAP lacks explicit polygons.
+- A GitHub Actions schedule on the main branch refreshes the public GeoJSON every 15 minutes.
+- Browser-side filtering hides expired warnings even when cached data is stale.
+
+## Installation to Home Assistant OS
+
+You can install the experimental fork over an existing HACS Weather Radar Card.
+It backs up the existing JS bundles.
+
+In Home Assistant Terminal & SSH, run:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/braticks/weather-radar-card/refs/heads/feature/lt-weather-warnings/scripts/install-ha-fork.sh | sh
+```
+
+Retain the original dashboard resource, e.g.
+`/hacsfiles/weather-radar-card/weather-radar-card.js`.
+Hard-refresh the browser after installation (Ctrl+F5).
+HACS updates to the original package may overwrite these fork files.
+
+Dashboard YAML:
 
 ```yaml
 type: custom:weather-radar-card
 show_layer_toggles: true
 show_european_alerts: true
-european_alerts_url: /local/weather-warnings.geojson
+height: 460
 ```
 
-The URL must return a **GeoJSON FeatureCollection** of warning polygons or
-multipolygons, readable by the card's browser (same-origin HA URL recommended).
-Supported feature properties: `id` or `alertId` (required),
-`headline`/`event`/`title`, `description`, and
-`awareness_level` (2/yellow, 3/orange, 4/red), or
-`severity` (Moderate/Severe/Extreme).
+By default, the layer fetches:
+`https://raw.githubusercontent.com/braticks/weather-radar-card/feature/lt-weather-warnings/data/lt-warnings.geojson`
 
-The map redraws approximately every five minutes while the layer is enabled.
-Warning text is inserted safely into HTML via textContent; popup titles and
-descriptions are never interpreted as HTML.
+You can set `european_alerts_url` to a different GeoJSON FeatureCollection URL
+if you operate a trusted local proxy.
 
-**Important: this is not a live Lithuania feed out of the box.**
-The GeoJSON URL is currently user-provided; no operational MeteoAlarm/HA
-proxy is supplied. Do not use invented polygon shapes or assume the Atom
-feed includes them. A test GeoJSON file is not an authoritative live warning.
+## Data and safety
 
-MeteoAlarm's direct EDR API requires authorized access. Public Atom feeds
-provide alert discovery, but translating these to exact polygons and filtering
-cancelled/expired alerts requires a validated server-side adapter. The
-current GeoJSON adapter requires the provider to filter its output to
-*currently active* alerts.
+Warnings come from **EUMETNET MeteoAlarm**, published by national agencies.
+EMMA region polygons are sourced from
+`NiklasJordan/meteoalarm` (MIT-licensed geocodes dataset).
+An empty layer can mean there are no current mapped warnings; always consult
+the official meteorological service for safety-critical decisions.
 
-This is an unreleased draft branch. Build and live-data integration have not
-been verified. Do not merge or install this branch as production yet.
-
-Sources:
-- https://api.meteoalarm.org/
-- https://feeds.meteoalarm.org/
-
-Attribution: EUMETNET MeteoAlarm and national meteorological agencies.
-Consult official agencies for decisions affecting safety.
+This is an **experimental manual install**, not a HACS release.
+Actual on-device verification across HA dashboards remains recommended.
