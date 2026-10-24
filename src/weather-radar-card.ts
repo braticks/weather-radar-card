@@ -129,6 +129,7 @@ import {
 import { WildfireLayer } from './wildfire-layer';
 import { NwsAlertsLayer, type AlertsStatus } from './nws-alerts-layer';
 import { EuropeanAlertsLayer } from './european-alerts-layer';
+import { CityTemperaturesLayer } from './city-temperatures-layer';
 const DEFAULT_LT_WARNINGS_URL = 'https://raw.githubusercontent.com/braticks/weather-radar-card/feature/lt-weather-warnings/data/lt-warnings.geojson';
 import { LightningLayer } from './lightning-layer';
 import { getRegionWarnings } from './region-warning';
@@ -260,6 +261,7 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
   private _alertsLayer: NwsAlertsLayer | null = null;
   private _europeanAlertsLayer: EuropeanAlertsLayer | null = null;
   private _lightningLayer: LightningLayer | null = null;
+  private _cityTemperaturesLayer: CityTemperaturesLayer | null = null;
   private _popupPanRestore = new PopupPanRestore<L.LatLng>();
 
   // True while the user is actively editing this card via HA's edit dialog.
@@ -904,6 +906,7 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
       case 'european_alerts': return this._europeanAlertsLayer !== null;
       case 'wind': return this._windOverlay !== null;
       case 'wind_flow': return this._windFlow !== null;
+      case 'temperatures': return this._cityTemperaturesLayer !== null;
       case 'wildfires': return this._wildfireLayer !== null;
       case 'lightning': return this._lightningLayer !== null;
     }
@@ -926,6 +929,10 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
         break;
       case 'wind_flow':
         this._setupWindOverlay('wind_flow');
+        break;
+      case 'temperatures':
+        this._cityTemperaturesLayer = new CityTemperaturesLayer(this._map, this._config.temperature_stations ?? ['birzu-ams']);
+        this._cityTemperaturesLayer.start();
         break;
       case 'wildfires':
         this._wildfireLayer = new WildfireLayer(this._map, () => this._config, this.hass);
@@ -955,6 +962,10 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
       case 'wind_flow':
         this._windFlow?.destroy();
         this._windFlow = null;
+        break;
+      case 'temperatures':
+        this._cityTemperaturesLayer?.clear();
+        this._cityTemperaturesLayer = null;
         break;
       case 'wildfires':
         this._wildfireLayer?.clear();
@@ -1011,6 +1022,8 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
     this._europeanAlertsLayer = null;
     this._lightningLayer?.clear();
     this._lightningLayer = null;
+    this._cityTemperaturesLayer?.clear();
+    this._cityTemperaturesLayer = null;
     this._viewPresets?.dispose();
     this._viewPresets = null;
     if (this._clusterGroup) { this._clusterGroup.clearLayers(); this._clusterGroup = null; }
