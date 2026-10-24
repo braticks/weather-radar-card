@@ -25,7 +25,8 @@ describe('overlayConfigured', () => {
   it('counts barbs, arrows or streamlines as wind', () => {
     expect(overlayConfigured('wind', cfg({ dwd_wind: 'barbs' }), undefined)).toBe(true);
     expect(overlayConfigured('wind', cfg({ dwd_wind: 'arrows' }), undefined)).toBe(true);
-    expect(overlayConfigured('wind', cfg({ dwd_wind_flow: true }), undefined)).toBe(true);
+    expect(overlayConfigured('wind', cfg({ dwd_wind_flow: true }), undefined)).toBe(false);
+    expect(overlayConfigured('wind_flow', cfg({ dwd_wind_flow: true }), undefined)).toBe(true);
     expect(overlayConfigured('wind', cfg({ dwd_wind: 'off' }), undefined)).toBe(false);
   });
 
@@ -112,9 +113,9 @@ describe('LayerToggleBar', () => {
 
   it('has a button for each configured overlay, in a fixed order', () => {
     const { buttons } = build(['lightning', 'wind', 'alerts', 'wildfires']);
-    expect(buttons.map((a) => a.title)).toEqual(['NWS alerts', 'Wind', 'Wildfires', 'Lightning']);
+    expect(buttons.map((a) => a.title)).toEqual(['NWS alerts', 'Vėjo kryptis', 'Wildfires', 'Lightning']);
     expect(buttons.map((a) => a.querySelector('ha-icon')!.getAttribute('icon')))
-      .toEqual(['mdi:alert', 'mdi:weather-windy', 'mdi:fire', 'mdi:flash']);
+      .toEqual(['mdi:alert', 'mdi:navigation', 'mdi:fire', 'mdi:flash']);
   });
 
   it('is a Leaflet bar of keyboard-reachable buttons', () => {
