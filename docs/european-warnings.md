@@ -33,7 +33,7 @@ Dashboard YAML:
 type: custom:weather-radar-card
 show_layer_toggles: true
 show_european_alerts: true
-height: 460
+height: 460px
 ```
 
 By default, the layer fetches:
