@@ -1,0 +1,29 @@
+name: Publish Weather Radar Card LT release
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*-lt.*'
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: npm ci
+      - name: Run tests
+        run: npm test -- --run
+      - name: Build
+        run: npm run build
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF_NAME}"
+          if [[ "$VERSION" != v*-lt.* ]]; then
+            echo "Tag must follow v4.0.0-lt.1 format"
+            exit 1
+          fi
+          gh release create "$VERSION" dist/weather-radar-card.js dist/weather-radar-card-maplibre.js --title "$VERSION" --notes "Weather Radar Card LT: European weather warnings and separate wind direction / animated flow controls." --prerelease --verify-tag
