@@ -13,13 +13,14 @@ const API = 'https://api.meteo.lt/v1';
 const MAX_AGE_MS = 3 * 60 * 60 * 1000;
 const REFRESH_MS = 15 * 60 * 1000;
 
+function timestamp(s: string): number { return Date.parse(s + (/[zZ]|[+-]\\d\\d:\\d\\d$/.test(s) ? '' : 'Z')); }
 export function latestTemperature(observations: Observation[], now = Date.now()): Observation | null {
   return observations
     .filter((o) => typeof o.airTemperature === 'number' && Number.isFinite(o.airTemperature)
-      && Number.isFinite(Date.parse(o.observationTimeUtc + (/[zZ]|[+-]\d\d:\d\d$/.test(o.observationTimeUtc) ? '' : 'Z')))
-      && now - Date.parse(o.observationTimeUtc + (/[zZ]|[+-]\d\d:\d\d$/.test(o.observationTimeUtc) ? '' : 'Z')) >= 0
-      && now - Date.parse(o.observationTimeUtc + (/[zZ]|[+-]\d\d:\d\d$/.test(o.observationTimeUtc) ? '' : 'Z')) <= MAX_AGE_MS)
-    .sort((a, b) => Date.parse(b.observationTimeUtc) - Date.parse(a.observationTimeUtc))[0] ?? null;
+      && Number.isFinite(timestamp(o.observationTimeUtc))
+      && now - timestamp(o.observationTimeUtc) >= 0
+      && now - timestamp(o.observationTimeUtc) <= MAX_AGE_MS)
+    .sort((a, b) => timestamp(b.observationTimeUtc) - timestamp(a.observationTimeUtc))[0] ?? null;
 }
 
 export class CityTemperaturesLayer {
