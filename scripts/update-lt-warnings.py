@@ -108,7 +108,7 @@ def main():
         embedded = next((e for e in entry.iter() if e.tag.split("}")[-1] == "alert"), None)
         candidates = [embedded] if embedded is not None else []
         if not candidates:
-            cap_links = [u for u in links if u.startswith("https://") and (".xml" in u.lower() or "cap" in u.lower())]
+            cap_links = [u for u in links if u.startswith("https://feeds.meteoalarm.org/api/v1/warnings/")]
             for url in cap_links[:1]:
                 try: candidates.append(get_xml(url))
                 except Exception as error: print("CAP detail unavailable:", error)
