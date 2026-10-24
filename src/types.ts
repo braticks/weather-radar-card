@@ -39,6 +39,10 @@ export interface WeatherRadarCardConfig extends LovelaceCardConfig {
   show_recenter: boolean;
   /** Top-right buttons that show or hide each configured overlay. */
   show_layer_toggles?: boolean;
+  /** Actual measured temperatures from Lithuanian weather stations. */
+  show_city_temperatures?: boolean;
+  /** Meteo.lt station codes; Biržai is included by default. */
+  temperature_stations?: string[];
   static_map: boolean;
   show_zoom: boolean;
   square_map: boolean;
