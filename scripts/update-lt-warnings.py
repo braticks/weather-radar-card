@@ -154,7 +154,7 @@ def main():
     payload = {
         "type": "FeatureCollection",
         "features": result,
-        "metadata": {"generatedAt": now.isoformat(), "source": "EUMETNET MeteoAlarm", "feed": FEED},
+        "metadata": {"source": "EUMETNET MeteoAlarm", "feed": FEED},
     }
     OUTPUT.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")) + "\n", encoding="utf-8")
     print(f"Entries: {len(entries)}; CAP details: {cap_entries}; active alert polygons: {len(result)}")
