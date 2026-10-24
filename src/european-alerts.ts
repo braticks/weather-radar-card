@@ -71,6 +71,12 @@ export function normalizeEuropeanGeoJson(input: unknown): EuropeanWarning[] {
     const p = f.properties || {};
     const id = String(p.alertId || p.id || f.id || '');
     if (!id) return [];
+    // The GitHub-hosted GeoJSON may remain cached during an upstream outage.
+    // Do not show alerts that have already expired on the viewer's clock.
+    if (typeof p.expires === 'string') {
+      const expiry = Date.parse(p.expires);
+      if (!Number.isFinite(expiry) || expiry <= Date.now()) return [];
+    }
     const title = String(p.headline || p.event || p.title || 'Weather warning');
     const level = normalizeAwarenessLevel(
       String(p.awareness_level ?? p.awarenessLevel ?? p.severity ?? ''),
