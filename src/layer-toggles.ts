@@ -5,7 +5,7 @@ import { ViewerState } from './viewer-state';
 import { isBlitzortungLoaded } from './lightning-helpers';
 import { localize } from './localize/localize';
 
-export type OverlayKey = 'alerts' | 'european_alerts' | 'wind' | 'wind_flow' | 'wildfires' | 'lightning';
+export type OverlayKey = 'alerts' | 'european_alerts' | 'wind' | 'wind_flow' | 'temperatures' | 'wildfires' | 'lightning';
 
 // Left to right in the toggle bar.
 const OVERLAYS: { key: OverlayKey; icon: string }[] = [
@@ -13,6 +13,7 @@ const OVERLAYS: { key: OverlayKey; icon: string }[] = [
   { key: 'european_alerts', icon: 'mdi:alert-outline' },
   { key: 'wind', icon: 'mdi:navigation' },
   { key: 'wind_flow', icon: 'mdi:weather-windy' },
+  { key: 'temperatures', icon: 'mdi:thermometer' },
   { key: 'wildfires', icon: 'mdi:fire' },
   { key: 'lightning', icon: 'mdi:flash' },
 ];
@@ -34,6 +35,7 @@ export function overlayConfigured(
     case 'european_alerts': return cfg.show_european_alerts === true;
     case 'wind': return cfg.dwd_wind === 'barbs' || cfg.dwd_wind === 'arrows';
     case 'wind_flow': return cfg.dwd_wind_flow === true;
+    case 'temperatures': return cfg.show_city_temperatures === true;
     case 'wildfires': return cfg.show_wildfires === true;
     case 'lightning': return cfg.show_lightning === true && isBlitzortungLoaded(hass);
   }
@@ -92,7 +94,7 @@ export class LayerToggleBar extends L.Control {
       const a = L.DomUtil.create('a', 'radar-layer-toggle', bar) as HTMLAnchorElement;
       a.href = '#';
       a.setAttribute('role', 'button');
-      const name = key === 'european_alerts' ? 'Europos orų pavojai' : key === 'wind' ? 'Vėjo kryptis' : key === 'wind_flow' ? 'Vėjo srovės' : localize(`ui.layers.${key}`);
+      const name = key === 'european_alerts' ? 'Europos orų pavojai' : key === 'wind' ? 'Vėjo kryptis' : key === 'wind_flow' ? 'Vėjo srovės' : key === 'temperatures' ? 'Miestų temperatūros' : localize(`ui.layers.${key}`);
       a.title = name;
       a.setAttribute('aria-label', name);
       L.DomUtil.create('ha-icon', '', a).setAttribute('icon', icon);
