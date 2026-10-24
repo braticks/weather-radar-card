@@ -26,4 +26,4 @@ jobs:
             echo "Tag must follow v4.0.0-lt.1 format"
             exit 1
           fi
-          gh release create "$VERSION" dist/weather-radar-card.js dist/weather-radar-card-maplibre.js --title "$VERSION" --notes "Weather Radar Card LT: European weather warnings and separate wind direction / animated flow controls." --prerelease --verify-tag
+          gh release create "$VERSION" dist/weather-radar-card.js dist/weather-radar-card-maplibre.js --title "$VERSION" --notes "Weather Radar Card LT: European weather warnings and separate wind direction / animated flow controls." --latest --verify-tag
