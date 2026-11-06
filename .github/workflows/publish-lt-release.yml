@@ -1,0 +1,59 @@
+name: Publish Weather Radar Card LT assets
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing stable GitHub release tag (e.g. v4.0.1)'
+        required: true
+        default: 'v4.0.1'
+  # One-time automatic repair of the previously asset-less v4.0.1 release.
+  # Remove this push trigger after the repair has succeeded.
+  push:
+    branches:
+      - feature/lt-weather-warnings
+    paths:
+      - .github/workflows/publish-lt-release.yml
+
+permissions:
+  contents: write
+
+jobs:
+  assets:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the exact release source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || 'v4.0.1' }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Run tests
+        run: npm test -- --run
+
+      - name: Build current release assets
+        run: npm run build
+
+      - name: Check release tag and upload assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag || 'v4.0.1' }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-lt\.[0-9]+)?$ ]]; then
+            echo "Invalid stable version tag: $RELEASE_TAG" >&2
+            exit 1
+          fi
+          gh release view "$RELEASE_TAG" >/dev/null
+          test -s dist/weather-radar-card.js
+          test -s dist/weather-radar-card-maplibre.js
+          gzip -kf dist/weather-radar-card.js
+          gh release upload "$RELEASE_TAG"             dist/weather-radar-card.js             dist/weather-radar-card-maplibre.js             dist/weather-radar-card.js.gz             --clobber
+          gh release edit "$RELEASE_TAG" --prerelease=false --latest
