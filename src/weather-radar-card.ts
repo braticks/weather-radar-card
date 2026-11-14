@@ -128,6 +128,9 @@ import {
 } from './layer-toggles';
 import { WildfireLayer } from './wildfire-layer';
 import { NwsAlertsLayer, type AlertsStatus } from './nws-alerts-layer';
+import { EuropeanAlertsLayer } from './european-alerts-layer';
+import { CityTemperaturesLayer } from './city-temperatures-layer';
+const DEFAULT_LT_WARNINGS_URL = 'https://raw.githubusercontent.com/braticks/weather-radar-card/feature/lt-weather-warnings/data/lt-warnings.geojson';
 import { LightningLayer } from './lightning-layer';
 import { getRegionWarnings } from './region-warning';
 import { escapeHtml } from './string-utils';
@@ -256,7 +259,9 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
   private _viewerState: ViewerState | null = null;
   private _wildfireLayer: WildfireLayer | null = null;
   private _alertsLayer: NwsAlertsLayer | null = null;
+  private _europeanAlertsLayer: EuropeanAlertsLayer | null = null;
   private _lightningLayer: LightningLayer | null = null;
+  private _cityTemperaturesLayer: CityTemperaturesLayer | null = null;
   private _popupPanRestore = new PopupPanRestore<L.LatLng>();
 
   // True while the user is actively editing this card via HA's edit dialog.
@@ -898,7 +903,10 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
   private _overlayRunning(key: OverlayKey): boolean {
     switch (key) {
       case 'alerts': return this._alertsLayer !== null;
-      case 'wind': return this._windOverlay !== null || this._windFlow !== null;
+      case 'european_alerts': return this._europeanAlertsLayer !== null;
+      case 'wind': return this._windOverlay !== null;
+      case 'wind_flow': return this._windFlow !== null;
+      case 'temperatures': return this._cityTemperaturesLayer !== null;
       case 'wildfires': return this._wildfireLayer !== null;
       case 'lightning': return this._lightningLayer !== null;
     }
@@ -912,8 +920,19 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
           (status) => this._setAlertsBanner(status));
         this._alertsLayer.start();
         break;
+      case 'european_alerts':
+        this._europeanAlertsLayer = new EuropeanAlertsLayer(this._map, this._config.european_alerts_url || DEFAULT_LT_WARNINGS_URL);
+        this._europeanAlertsLayer.start();
+        break;
       case 'wind':
-        this._setupWindOverlay();
+        this._setupWindOverlay('wind');
+        break;
+      case 'wind_flow':
+        this._setupWindOverlay('wind_flow');
+        break;
+      case 'temperatures':
+        this._cityTemperaturesLayer = new CityTemperaturesLayer(this._map, this._config.temperature_stations ?? ['birzu-ams']);
+        this._cityTemperaturesLayer.start();
         break;
       case 'wildfires':
         this._wildfireLayer = new WildfireLayer(this._map, () => this._config, this.hass);
@@ -932,11 +951,21 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
         this._alertsLayer?.clear();
         this._alertsLayer = null;
         break;
+      case 'european_alerts':
+        this._europeanAlertsLayer?.clear();
+        this._europeanAlertsLayer = null;
+        break;
       case 'wind':
         this._windOverlay?.destroy();
         this._windOverlay = null;
+        break;
+      case 'wind_flow':
         this._windFlow?.destroy();
         this._windFlow = null;
+        break;
+      case 'temperatures':
+        this._cityTemperaturesLayer?.clear();
+        this._cityTemperaturesLayer = null;
         break;
       case 'wildfires':
         this._wildfireLayer?.clear();
@@ -989,8 +1018,12 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
     this._wildfireLayer = null;
     this._alertsLayer?.clear();
     this._alertsLayer = null;
+    this._europeanAlertsLayer?.clear();
+    this._europeanAlertsLayer = null;
     this._lightningLayer?.clear();
     this._lightningLayer = null;
+    this._cityTemperaturesLayer?.clear();
+    this._cityTemperaturesLayer = null;
     this._viewPresets?.dispose();
     this._viewPresets = null;
     if (this._clusterGroup) { this._clusterGroup.clearLayers(); this._clusterGroup = null; }
@@ -1114,7 +1147,7 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
     return mapStyle === 'satellite' && isMapTilesLoaded(this.hass) && this._config.low_power_mode !== true;
   }
 
-  private _setupWindOverlay(): void {
+  private _setupWindOverlay(layer: 'wind' | 'wind_flow'): void {
     if (!this._map) return;
     const cfg = this._config;
     // Wind overlay is data-source-independent: ICON (10 m wind) is a
@@ -1134,7 +1167,7 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
 
     const windSource = cfg.wind_source ?? DEFAULT_WIND_SOURCE;
     const mode = cfg.dwd_wind ?? 'off';
-    if (mode === 'barbs' || mode === 'arrows') {
+    if (layer === 'wind' && (mode === 'barbs' || mode === 'arrows')) {
       this._windOverlay = new WindOverlay(this._map, {
         style: mode,
         density: cfg.dwd_wind_density,
@@ -1144,7 +1177,7 @@ export class WeatherRadarCard extends LitElement implements LovelaceCard {
         preloadWhileHidden: cfg.preload_while_hidden === true,
       });
     }
-    if (cfg.dwd_wind_flow === true) {
+    if (layer === 'wind_flow' && cfg.dwd_wind_flow === true) {
       // Pick streamline colour from the active basemap. Satellite is split out
       // from the plain dark Carto map: satellite imagery has more varied
       // terrain (forests, snow, water) and benefits from a brighter stroke,

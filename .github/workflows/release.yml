@@ -4,6 +4,11 @@ on:
   release:
     types: [published]
 
+# GitHub's default GITHUB_TOKEN is read-only in this repository.
+# Uploading release assets requires explicit write permission.
+permissions:
+  contents: write
+
 jobs:
   release:
     name: Prepare release
